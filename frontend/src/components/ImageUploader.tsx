@@ -4,9 +4,6 @@ import { checkDimensions, decodeImageSize, precheckFile } from '../lib/imageFile
 import { LIMITS } from '../types/generation'
 import { Section } from './ui'
 
-const SAMPLE_URL = '/samples/brushed_metal_512x448.png'
-const PART_SAMPLE_URL = '/samples/part_synthetic_640x400.png'
-
 function formatBytes(bytes: number): string {
   return bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1024 / 1024).toFixed(2)} MB`
 }
@@ -52,32 +49,8 @@ export function ImageUploader() {
     if (file) void accept(file)
   }
 
-  const loadSample = async (url: string) => {
-    try {
-      const response = await fetch(url)
-      if (!response.ok) throw new Error()
-      const blob = await response.blob()
-      await accept(new File([blob], url.split('/').pop() ?? 'sample.png', { type: 'image/png' }))
-    } catch {
-      pushToast('error', '예시 이미지를 불러오지 못했습니다.')
-    }
-  }
-
   return (
-    <Section
-      title="이미지"
-      aside={
-        <span className="flex items-center gap-2 text-[11px]">
-          <span className="text-faint">예시</span>
-          <button type="button" className="link" onClick={() => loadSample(SAMPLE_URL)} title="절차적으로 만든 금속 표면 합성 이미지" data-testid="load-sample">
-            금속
-          </button>
-          <button type="button" className="link" onClick={() => loadSample(PART_SAMPLE_URL)} title="절차적으로 만든 칩 부품 형태의 합성 이미지 (실제 부품 사진 아님)" data-testid="load-sample-part">
-            부품
-          </button>
-        </span>
-      }
-    >
+    <Section title="이미지">
       <div
         role="button"
         tabIndex={0}

@@ -7,11 +7,12 @@ import path from 'node:path'
 const EXAMPLE = JSON.parse(fs.readFileSync(path.resolve(import.meta.dirname, '../../examples/configs/regions_scratch.json'), 'utf8'))
 const ELECTRODE: number[][] = EXAMPLE.regions[0].polygon
 const LINE: { start: number[]; end: number[] } = EXAMPLE.reference_line
+const PART_IMAGE = path.resolve(import.meta.dirname, '../public/samples/part_synthetic_640x400.png')
 
 async function openPart(page: Page) {
   await page.goto('/')
   await expect(page.getByTestId('api-status')).toHaveAttribute('data-state', 'ok')
-  await page.getByTestId('load-sample-part').click()
+  await page.getByTestId('file-input').setInputFiles(PART_IMAGE)
   await expect(page.getByTestId('source-meta')).toContainText('640 × 400 px')
 }
 
@@ -204,7 +205,7 @@ test('이미지를 교체하면 영역·기준선·결과가 초기화된다', a
   expect((await generate(page)).status()).toBe(200)
   await expect(page.getByTestId('result-scope')).toBeVisible()
 
-  await page.getByTestId('load-sample-part').click()
+  await page.getByTestId('file-input').setInputFiles(PART_IMAGE)
   await expect(page.locator('[data-region-kind]')).toHaveCount(0)
   await expect(page.getByTestId('line-readout')).toHaveCount(0)
   await expect(page.getByTestId('area-status')).toContainText('이미지 전체')

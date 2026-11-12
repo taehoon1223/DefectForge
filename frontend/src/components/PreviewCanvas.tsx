@@ -258,7 +258,7 @@ export function PreviewCanvas() {
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-center">
             <p className="text-[13px] text-ink">정상 이미지를 업로드하세요</p>
             <p className="max-w-sm leading-relaxed text-faint">
-              왼쪽 패널에서 PNG/JPEG/WebP 파일을 올리거나 예시 이미지를 불러오면 여기에서 영역을 그리고 합성 결과와 마스크를 확인할 수 있습니다.
+              왼쪽 패널에서 PNG/JPEG/WebP 파일을 올리면 여기에서 영역을 그리고 합성 결과와 마스크를 확인할 수 있습니다.
             </p>
           </div>
         )}
