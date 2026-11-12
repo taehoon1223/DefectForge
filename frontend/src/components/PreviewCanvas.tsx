@@ -127,7 +127,7 @@ export function PreviewCanvas() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* toolbar */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-line bg-panel px-3 py-2">
+      <div className="flex min-h-8 flex-wrap items-center gap-2 border-b border-line bg-panel px-2 py-1">
         <div className="seg" role="tablist" aria-label="보기 모드">
           {VIEW_TABS.map(({ mode, label }) => (
             <button
@@ -145,15 +145,15 @@ export function PreviewCanvas() {
           ))}
         </div>
         {stale && hasResult && (
-          <span className="rounded border border-warn/40 bg-warn/10 px-2 py-0.5 text-[11px] font-medium text-warn" data-testid="stale-badge">
+          <span className="text-[11px] text-warn" data-testid="stale-badge">
             설정 변경됨 · 표시 결과는 이전 설정 기준
           </span>
         )}
-        <div className="ml-auto flex items-center gap-1">
+        <div className="ml-auto flex items-center gap-0.5">
           {hasOverlays && (
             <button
               type="button"
-              className="btn btn-ghost h-7 px-2"
+              className="btn btn-ghost px-2"
               aria-pressed={hideRegions}
               onClick={() => setHideRegions((v) => !v)}
               data-testid="toggle-regions"
@@ -164,18 +164,18 @@ export function PreviewCanvas() {
           <button type="button" className="btn btn-ghost btn-icon" aria-label="축소" disabled={!size} onClick={() => zoomBy(1 / ZOOM_STEP)} data-testid="zoom-out">
             −
           </button>
-          <span className="num w-14 text-center text-[12px] text-muted" data-testid="zoom-level">
+          <span className="num w-12 text-center text-muted" data-testid="zoom-level">
             {Math.round(view.scale * 100)}%
           </span>
           <button type="button" className="btn btn-ghost btn-icon" aria-label="확대" disabled={!size} onClick={() => zoomBy(ZOOM_STEP)} data-testid="zoom-in">
             +
           </button>
-          <button type="button" className="btn btn-ghost h-7 px-2" disabled={!size} onClick={() => size && setView(fitView(size, viewport))} data-testid="zoom-fit">
+          <button type="button" className="btn btn-ghost px-2" disabled={!size} onClick={() => size && setView(fitView(size, viewport))} data-testid="zoom-fit">
             맞춤
           </button>
           <button
             type="button"
-            className="btn btn-ghost h-7 px-2"
+            className="btn btn-ghost px-2"
             disabled={!size}
             onClick={() => setView((v) => zoomAt(v, { x: viewport.width / 2, y: viewport.height / 2 }, 1))}
             data-testid="zoom-100"
@@ -188,7 +188,7 @@ export function PreviewCanvas() {
       {/* stage */}
       <div
         ref={containerRef}
-        className="checker relative min-h-0 flex-1 overflow-hidden"
+        className="relative min-h-0 flex-1 overflow-hidden bg-bg"
         style={{ cursor: !size ? 'default' : panning ? 'grab' : 'crosshair' }}
         data-testid="canvas-container"
         data-scale={view.scale}
@@ -241,7 +241,7 @@ export function PreviewCanvas() {
                   {maskCanvas && <KImage image={maskCanvas} width={size.width} height={size.height} />}
                 </>
               )}
-              <Rect width={size.width} height={size.height} stroke="#2f3a4a" strokeWidth={1} strokeScaleEnabled={false} />
+              <Rect width={size.width} height={size.height} stroke="#3a3a3a" strokeWidth={1} strokeScaleEnabled={false} />
             </Layer>
             <Layer>
               <RegionLayer scale={view.scale} imageSize={size} hover={hover} showRegions={showOverlays} />
@@ -256,22 +256,22 @@ export function PreviewCanvas() {
 
         {!size && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-center">
-            <p className="text-[14px] font-medium text-ink">정상 이미지를 업로드하세요</p>
-            <p className="max-w-sm text-[12px] leading-relaxed text-muted">
+            <p className="text-[13px] text-ink">정상 이미지를 업로드하세요</p>
+            <p className="max-w-sm leading-relaxed text-faint">
               왼쪽 패널에서 PNG/JPEG/WebP 파일을 올리거나 예시 이미지를 불러오면 여기에서 영역을 그리고 합성 결과와 마스크를 확인할 수 있습니다.
             </p>
           </div>
         )}
 
         {isGenerating && (
-          <div className="pointer-events-none absolute top-3 right-3 flex items-center gap-2 rounded border border-line bg-panel/90 px-2.5 py-1.5 text-[12px] text-ink">
-            <Spinner className="text-accent" /> 생성 중…
+          <div className="pointer-events-none absolute top-2 right-2 flex items-center gap-2 rounded-[2px] bg-[rgba(30,30,30,0.85)] px-2.5 py-1 text-ink">
+            <Spinner className="text-muted" /> 생성 중…
           </div>
         )}
       </div>
 
       {/* footer readout */}
-      <div className="num flex h-7 items-center gap-4 border-t border-line bg-panel px-3 text-[11px] text-muted">
+      <div className="num flex h-6 items-center gap-4 border-t border-line bg-panel px-3 text-[11px] text-faint">
         <span data-testid="cursor-readout">{hoverPixel ? `x ${hoverPixel[0]}  y ${hoverPixel[1]}` : 'x —  y —'}</span>
         {size && (
           <span>

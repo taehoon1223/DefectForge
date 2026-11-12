@@ -1,26 +1,32 @@
 @import 'tailwindcss';
 
+/*
+ * Neutral photo-tool palette (Lightroom Classic / darktable / DaVinci Resolve style):
+ * the chrome has no hue at all so it never biases how a defect's colour is judged.
+ * Colour is reserved for content — the image, mask classes, regions — and for status.
+ */
 @theme {
-  --color-bg: #0a0d12;
-  --color-panel: #0f141b;
-  --color-panel-2: #141a23;
-  --color-raised: #1a212c;
-  --color-line: #232c39;
-  --color-line-strong: #2f3a4a;
-  --color-ink: #dce3eb;
-  --color-muted: #8a96a7;
-  --color-faint: #5d6878;
-  --color-accent: #4f8cff;
-  --color-accent-strong: #3b74e6;
-  --color-ok: #34d399;
-  --color-warn: #fbbf24;
-  --color-danger: #f87171;
+  --color-bg: #191919; /* viewer surround */
+  --color-panel: #262626; /* side panels */
+  --color-panel-2: #2e2e2e; /* panel title bars, selected rows */
+  --color-raised: #383838; /* buttons, selected segment */
+  --color-field: #1c1c1c; /* inputs, segment track */
+  --color-line: #161616; /* gutters between panels */
+  --color-line-strong: #3d3d3d; /* hairlines and hover borders inside panels */
+  --color-ink: #d4d4d4;
+  --color-muted: #999999;
+  --color-faint: #6c6c6c;
+  --color-accent: #ececec; /* emphasis by brightness, not hue */
+  --color-accent-strong: #ffffff;
+  --color-ok: #8db87c;
+  --color-warn: #d6a24a;
+  --color-danger: #e0675c;
   --color-scratch: #ff3b30;
   --color-pinhole: #ffd60a;
   --color-contamination: #00e5ff;
 
   --font-sans: 'Segoe UI', 'Malgun Gothic', 'Apple SD Gothic Neo', 'Noto Sans KR', system-ui, sans-serif;
-  --font-mono: 'Cascadia Mono', 'JetBrains Mono', Consolas, 'D2Coding', ui-monospace, monospace;
+  --font-mono: 'Cascadia Mono', Consolas, 'D2Coding', ui-monospace, monospace;
 }
 
 @layer base {
@@ -30,14 +36,14 @@
     height: 100%;
   }
   body {
-    background: var(--color-bg);
+    background: var(--color-line);
     color: var(--color-ink);
     font-family: var(--font-sans);
-    font-size: 13px;
+    font-size: 12px;
     -webkit-font-smoothing: antialiased;
   }
   ::selection {
-    background: color-mix(in srgb, var(--color-accent) 40%, transparent);
+    background: #5a5a5a;
   }
   input,
   select,
@@ -45,70 +51,72 @@
     font: inherit;
   }
   :focus-visible {
-    outline: 2px solid var(--color-accent);
+    outline: 1px solid #bdbdbd;
     outline-offset: 1px;
   }
   * {
     scrollbar-width: thin;
-    scrollbar-color: var(--color-line-strong) transparent;
+    scrollbar-color: #474747 transparent;
   }
 }
 
 @layer components {
   .input {
-    @apply h-7 w-full rounded border border-line bg-bg px-2 font-mono text-[12px] tabular-nums text-ink outline-none transition-colors placeholder:text-faint focus:border-accent;
+    @apply h-[22px] w-full rounded-[2px] border border-transparent bg-field px-1.5 text-[12px] tabular-nums text-ink outline-none transition-colors placeholder:text-faint hover:border-line-strong focus:border-muted;
   }
   .input[aria-invalid='true'] {
     @apply border-danger;
   }
   .btn {
-    @apply inline-flex h-8 items-center justify-center gap-1.5 rounded border border-line-strong bg-raised px-3 text-[12px] font-medium text-ink transition-colors hover:border-faint hover:bg-line disabled:cursor-not-allowed disabled:opacity-40;
+    @apply inline-flex h-6 items-center justify-center gap-1.5 rounded-[2px] bg-raised px-2.5 text-[12px] text-ink transition-colors hover:bg-[#434343] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-raised;
+  }
+  .btn[aria-pressed='true'] {
+    @apply bg-ink text-[#161616];
   }
   .btn-primary {
-    @apply border-accent bg-accent text-white hover:border-accent-strong hover:bg-accent-strong;
+    @apply bg-ink font-semibold text-[#161616] hover:bg-accent-strong disabled:hover:bg-ink;
   }
   .btn-ghost {
-    @apply border-transparent bg-transparent text-muted hover:bg-raised hover:text-ink;
+    @apply bg-transparent text-muted hover:bg-raised hover:text-ink disabled:hover:bg-transparent;
   }
   .btn-icon {
-    @apply h-7 w-7 px-0;
+    @apply h-6 w-6 px-0;
   }
   .seg {
-    @apply inline-flex rounded border border-line bg-bg p-0.5;
+    @apply inline-flex gap-px rounded-[2px] bg-field p-px;
   }
   .seg > button {
-    @apply h-6 rounded-sm px-2.5 text-[12px] text-muted transition-colors hover:text-ink;
+    @apply h-5 rounded-[1px] px-2 text-[12px] text-muted transition-colors hover:text-ink;
   }
   .seg > button[aria-pressed='true'],
   .seg > button[aria-selected='true'] {
-    @apply bg-raised text-ink shadow-[inset_0_0_0_1px_var(--color-line-strong)];
+    @apply bg-[#474747] text-accent;
   }
   .label {
-    @apply text-[11px] font-medium text-muted;
+    @apply text-[12px] text-muted;
   }
   .num {
-    @apply font-mono tabular-nums;
+    @apply tabular-nums;
+  }
+  .link {
+    @apply text-muted underline decoration-faint underline-offset-2 hover:text-ink;
   }
   input[type='range'] {
-    @apply h-1 w-full cursor-pointer appearance-none rounded bg-line accent-accent;
+    @apply h-3 w-full cursor-pointer appearance-none bg-transparent;
+  }
+  input[type='range']::-webkit-slider-runnable-track {
+    @apply h-[2px] rounded-none bg-[#4a4a4a];
+  }
+  input[type='range']::-moz-range-track {
+    @apply h-[2px] bg-[#4a4a4a];
   }
   input[type='range']::-webkit-slider-thumb {
-    @apply h-3 w-3 appearance-none rounded-full border-2 border-bg bg-accent;
+    @apply -mt-1 h-2.5 w-2.5 appearance-none rounded-full bg-[#cfcfcf];
   }
   input[type='range']::-moz-range-thumb {
-    @apply h-3 w-3 rounded-full border-2 border-bg bg-accent;
+    @apply h-2.5 w-2.5 rounded-full border-0 bg-[#cfcfcf];
   }
-}
-
-.checker {
-  background-color: #0c1016;
-  background-image:
-    linear-gradient(45deg, #121821 25%, transparent 25%), linear-gradient(-45deg, #121821 25%, transparent 25%),
-    linear-gradient(45deg, transparent 75%, #121821 75%), linear-gradient(-45deg, transparent 75%, #121821 75%);
-  background-size: 16px 16px;
-  background-position:
-    0 0,
-    0 8px,
-    8px -8px,
-    -8px 0;
+  input[type='checkbox'] {
+    accent-color: #cfcfcf;
+  }
 }

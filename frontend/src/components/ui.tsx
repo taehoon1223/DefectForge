@@ -1,37 +1,97 @@
 import { useId, useState, type ReactNode } from 'react'
 import type { Range } from '../types/generation'
 
-export function Section({ title, aside, children, testId }: { title: string; aside?: ReactNode; children: ReactNode; testId?: string }) {
+function Triangle({ open }: { open: boolean }) {
   return (
-    <section className="border-b border-line px-4 py-3.5" data-testid={testId}>
-      <div className="mb-2.5 flex items-center justify-between gap-2">
-        <h2 className="text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">{title}</h2>
+    <svg width="8" height="8" viewBox="0 0 8 8" aria-hidden className={`shrink-0 fill-current transition-transform ${open ? '' : '-rotate-90'}`}>
+      <path d="M0.5 2h7L4 6.5z" />
+    </svg>
+  )
+}
+
+/**
+ * Collapsible side-panel section with a title bar (photo-tool style).
+ * `leading` sits before the title (e.g. an on/off checkbox); `aside` sits before the triangle.
+ */
+export function Section({
+  title,
+  aside,
+  leading,
+  children,
+  testId,
+  dimmed = false,
+}: {
+  title: string
+  aside?: ReactNode
+  leading?: ReactNode
+  children?: ReactNode
+  testId?: string
+  dimmed?: boolean
+}) {
+  const [open, setOpen] = useState(true)
+  const bodyId = useId()
+  const hasBody = children !== undefined && children !== null && children !== false
+  return (
+    <section className="border-b border-line" data-testid={testId}>
+      <div className={`flex h-7 items-center gap-2 bg-panel-2 px-3 ${dimmed ? 'text-faint' : 'text-ink'}`}>
+        {leading}
+        <h2 className="min-w-0 flex-1 truncate text-[12px] font-semibold">{title}</h2>
         {aside}
+        {hasBody && (
+          <button
+            type="button"
+            className="-mr-1 flex h-6 w-6 items-center justify-center text-faint hover:text-ink"
+            aria-expanded={open}
+            aria-controls={bodyId}
+            aria-label={`${title} ${open ? '접기' : '펼치기'}`}
+            onClick={() => setOpen((v) => !v)}
+          >
+            <Triangle open={open} />
+          </button>
+        )}
       </div>
-      {children}
+      {hasBody && open && (
+        <div id={bodyId} className="grid gap-2 px-3 pt-2.5 pb-3">
+          {children}
+        </div>
+      )}
     </section>
   )
 }
 
-/** Folded "details" block. `forceOpen` (e.g. a field error inside) opens it and keeps it open. */
+/** Label on the left, control(s) on the right — the basic inspector row. */
+export function Row({ label, children, htmlFor, testId }: { label: ReactNode; children: ReactNode; htmlFor?: string; testId?: string }) {
+  return (
+    <div className="grid min-h-[22px] grid-cols-[72px_minmax(0,1fr)] items-center gap-2" data-testid={testId}>
+      {htmlFor ? (
+        <label htmlFor={htmlFor} className="label truncate">
+          {label}
+        </label>
+      ) : (
+        <span className="label truncate">{label}</span>
+      )}
+      <div className="flex min-w-0 items-center gap-1.5">{children}</div>
+    </div>
+  )
+}
+
+/** Folded block inside a section. `forceOpen` (e.g. a field error inside) opens it and keeps it open. */
 export function Disclosure({ title, children, forceOpen = false, testId }: { title: string; children: ReactNode; forceOpen?: boolean; testId?: string }) {
   const [open, setOpen] = useState(false)
   if (forceOpen && !open) setOpen(true)
   return (
-    <div className="mt-2.5">
+    <div>
       <button
         type="button"
-        className="flex items-center gap-1 text-[11px] text-muted select-none hover:text-ink"
+        className="flex items-center gap-1.5 py-0.5 text-[12px] text-muted select-none hover:text-ink"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
         data-testid={testId}
       >
-        <span aria-hidden className={`inline-block transition-transform ${open ? 'rotate-90' : ''}`}>
-          ▸
-        </span>
+        <Triangle open={open} />
         {title}
       </button>
-      {open && <div className="mt-2 grid gap-2.5">{children}</div>}
+      {open && <div className="mt-1.5 grid gap-2 border-l border-line-strong pl-2.5">{children}</div>}
     </div>
   )
 }
@@ -39,7 +99,7 @@ export function Disclosure({ title, children, forceOpen = false, testId }: { tit
 export function FieldError({ message }: { message?: string }) {
   if (!message) return null
   return (
-    <p role="alert" className="mt-1 text-[11px] text-danger">
+    <p role="alert" className="text-[11px] text-danger">
       {message}
     </p>
   )
@@ -117,15 +177,12 @@ export function RangeField({
 }) {
   return (
     <div>
-      <div className="mb-1 flex items-baseline justify-between">
-        <span className="label">{label}</span>
-        {unit && <span className="text-[10px] text-faint">{unit}</span>}
-      </div>
-      <div className="flex items-center gap-1.5">
-        <NumberField label={`${label} 최소`} value={value[0]} step={step} invalid={!!error} testId={testId && `${testId}-min`} onChange={(v) => onChange([v, value[1]])} />
+      <Row label={label}>
+        <NumberField label={`${label} 최소`} value={value[0]} step={step} invalid={!!error} testId={testId && `${testId}-min`} onChange={(v) => onChange([v, value[1]])} className="text-right" />
         <span className="text-faint">–</span>
-        <NumberField label={`${label} 최대`} value={value[1]} step={step} invalid={!!error} testId={testId && `${testId}-max`} onChange={(v) => onChange([value[0], v])} />
-      </div>
+        <NumberField label={`${label} 최대`} value={value[1]} step={step} invalid={!!error} testId={testId && `${testId}-max`} onChange={(v) => onChange([value[0], v])} className="text-right" />
+        <span className="w-4 shrink-0 text-[11px] text-faint">{unit}</span>
+      </Row>
       <FieldError message={error} />
     </div>
   )
@@ -155,18 +212,15 @@ export function SliderField({
   const id = useId()
   return (
     <div>
-      <div className="mb-1.5 flex items-baseline justify-between">
-        <label htmlFor={id} className="label">
-          {label}
-        </label>
-        <span className="num text-[11px] text-ink">{Number.isFinite(value) ? format(value) : '—'}</span>
-      </div>
-      <input id={id} type="range" min={min} max={max} step={step} value={value} data-testid={testId} onChange={(e) => onChange(Number(e.target.value))} />
+      <Row label={label} htmlFor={id}>
+        <input id={id} type="range" min={min} max={max} step={step} value={value} data-testid={testId} onChange={(e) => onChange(Number(e.target.value))} />
+        <span className="num w-12 shrink-0 text-right text-ink">{Number.isFinite(value) ? format(value) : '—'}</span>
+      </Row>
       <FieldError message={error} />
     </div>
   )
 }
 
 export function Spinner({ className = '' }: { className?: string }) {
-  return <span aria-hidden className={`inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent ${className}`} />
+  return <span aria-hidden className={`inline-block h-3 w-3 animate-spin rounded-full border-[1.5px] border-current border-t-transparent ${className}`} />
 }

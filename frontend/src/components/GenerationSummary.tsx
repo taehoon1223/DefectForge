@@ -103,7 +103,7 @@ export function GenerationSummary() {
                     <tr key={inst.id} className="border-t border-line">
                       <td className="py-0.5">{inst.id}</td>
                       <td>
-                        <span className="mr-1 inline-block h-2 w-2 rounded-sm" style={{ background: rgbCss(CLASS_COLORS[inst.type]) }} />
+                        <span className="mr-1.5 inline-block h-2 w-2" style={{ background: rgbCss(CLASS_COLORS[inst.type]) }} />
                         {DEFECT_LABELS[inst.type]}
                       </td>
                       <td>{inst.bbox_xyxy.join(',')}</td>

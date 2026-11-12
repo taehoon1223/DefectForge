@@ -39,35 +39,35 @@ export function StatusBar() {
   const setError = useWorkspaceStore((s) => s.setError)
   const lines = error ? detailLines(error) : []
 
-  let tone = 'bg-faint'
+  let tone = 'text-muted'
   let text = '이미지를 업로드하세요'
   if (isExporting) {
-    tone = 'bg-accent animate-pulse'
+    tone = 'text-ink'
     text = `데이터셋 ${exportCount}장 생성·압축 중…`
   } else if (isGenerating) {
-    tone = 'bg-accent animate-pulse'
+    tone = 'text-ink'
     text = '합성 이미지와 마스크 생성 중…'
   } else if (result && stale) {
-    tone = 'bg-warn'
+    tone = 'text-warn'
     text = '설정이 변경되었습니다 · 다시 생성하세요'
   } else if (result) {
     const m = result.metadata
-    tone = 'bg-ok'
+    tone = 'text-ink'
     text = `미리보기 완료 · 결함 ${m.generated_count}/${m.requested_count} · ${result.processing_ms.toFixed(0)} ms`
   } else if (hasImage) {
-    tone = 'bg-accent'
+    tone = 'text-ink'
     text = '준비됨 · ‘생성 미리보기’를 누르세요'
   }
 
   return (
-    <footer className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-line bg-panel px-4 py-2" data-testid="status-bar">
-      <div className="flex min-w-0 items-center gap-2 text-[12px]" role="status" data-testid="status-text">
-        {isGenerating || isExporting ? <Spinner className="text-accent" /> : <span className={`h-2 w-2 shrink-0 rounded-full ${tone}`} />}
-        <span className={stale && !isGenerating ? 'text-warn' : 'text-ink'}>{text}</span>
+    <footer className="flex min-h-9 flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-line bg-panel px-3 py-1.5" data-testid="status-bar">
+      <div className="flex min-w-0 items-center gap-2" role="status" data-testid="status-text">
+        {(isGenerating || isExporting) && <Spinner className="text-muted" />}
+        <span className={tone}>{text}</span>
       </div>
 
       {error && (
-        <div className="flex min-w-0 flex-1 items-start gap-2 rounded border border-danger/40 bg-danger/10 px-2.5 py-1.5 text-[12px]" role="alert" data-testid="error-message">
+        <div className="flex min-w-0 flex-1 items-start gap-2 rounded-[2px] bg-[#3a2826] px-2.5 py-1" role="alert" data-testid="error-message">
           <span className="font-semibold text-danger">오류</span>
           <div className="min-w-0 flex-1">
             <p className="text-ink">{error.message}</p>
@@ -79,7 +79,7 @@ export function StatusBar() {
               </ul>
             )}
           </div>
-          <span className="num shrink-0 text-[10px] text-faint" data-testid="error-code">
+          <span className="shrink-0 font-mono text-[10px] text-faint" data-testid="error-code">
             {error.code}
           </span>
           {lines.length > 0 && (

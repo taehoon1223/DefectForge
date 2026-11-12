@@ -8,7 +8,7 @@ import { LIMITS, REGION_KIND_LABELS, type Point, type RegionKind } from '../type
 import { Section } from './ui'
 
 const LINE_COLOR = '#22c55e'
-const FRAME_COLOR = '#4f8cff'
+const FRAME_COLOR = '#8a8a8a'
 
 function withAlpha(hex: string, alpha: number): string {
   const n = Number.parseInt(hex.slice(1), 16)
@@ -38,7 +38,7 @@ export function AreaPanel() {
 
   return (
     <Section title="영역" testId="area-panel">
-      <p className="mb-2 text-[12px] text-muted" data-testid="area-status">
+      <p className="text-muted" data-testid="area-status">
         {includes === 0 ? '이미지 전체에 생성합니다.' : `생성 영역 ${includes}개 안에만 생성합니다.`}
         {regions.length > includes && ` 제외 영역 ${regions.length - includes}개는 뺍니다.`}
       </p>
@@ -47,29 +47,31 @@ export function AreaPanel() {
           <button
             key={kind}
             type="button"
-            className="btn h-7 flex-1 px-1.5"
+            className="btn flex-1 px-1.5"
             disabled={!size}
             aria-pressed={drawing === kind}
             onClick={() => startRegionDrawing(kind)}
+            title={hint ? `단축키 ${hint}` : undefined}
             data-testid={`add-${kind}`}
           >
             {label}
-            {hint && <kbd className="text-[10px] text-faint">{hint}</kbd>}
           </button>
         ))}
       </div>
 
       {drawing && (
-        <div className="mt-2 rounded border border-line bg-bg px-2.5 py-2 text-[12px]" data-testid="region-draw-status">
-          <span className="text-accent">
-            {REGION_KIND_LABELS[drawing]} 그리는 중 · {draft?.length ?? 0}점
-          </span>
-          <p className="mt-1 text-[11px] text-faint">클릭: 점 추가 · 첫 점 클릭/더블클릭/Enter: 닫기 · Backspace: 되돌리기 · Esc: 취소</p>
-          <div className="mt-2 flex gap-1.5">
-            <button type="button" className="btn h-7 flex-1" onClick={() => closeDraft()} disabled={!draft || draft.length < 3} data-testid="region-close">
+        <div className="grid gap-1.5" data-testid="region-draw-status">
+          <p>
+            <span className="text-accent">
+              {REGION_KIND_LABELS[drawing]} 그리는 중 · {draft?.length ?? 0}점
+            </span>
+            <span className="block text-[11px] text-faint">클릭: 점 추가 · 첫 점/더블클릭/Enter: 닫기 · Backspace: 되돌리기 · Esc: 취소</span>
+          </p>
+          <div className="flex gap-1.5">
+            <button type="button" className="btn flex-1" onClick={() => closeDraft()} disabled={!draft || draft.length < 3} data-testid="region-close">
               그리기 완료
             </button>
-            <button type="button" className="btn h-7 flex-1" onClick={cancelDrawing} data-testid="region-cancel">
+            <button type="button" className="btn btn-ghost flex-1" onClick={cancelDrawing} data-testid="region-cancel">
               취소
             </button>
           </div>
@@ -77,22 +79,27 @@ export function AreaPanel() {
       )}
 
       {regions.length > 0 && (
-        <ul className="mt-2 grid gap-1" data-testid="region-list">
+        <ul className="-mx-3" data-testid="region-list">
           {regions.map((region) => {
             const color = regionColor(region, regions)
             const problem = size ? validateRoi(region.polygon, size, LIMITS.roiMaxPoints, `영역 '${region.name}'`) : null
+            const isSelected = region.id === selectedId
             return (
               <li
                 key={region.id}
-                className={`rounded border px-2 py-1 ${region.id === selectedId ? 'border-line-strong bg-panel-2' : 'border-line'}`}
+                className={`group px-3 py-0.5 ${isSelected ? 'bg-panel-2' : 'hover:bg-[#2a2a2a]'}`}
                 data-testid={`region-row-${region.id}`}
                 data-region-kind={region.kind}
                 onClick={() => selectRegion(region.id)}
               >
-                <div className="flex items-center gap-1.5">
-                  <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ background: color }} aria-hidden />
+                <div className="flex items-center gap-2">
+                  <span
+                    className="h-2.5 w-2.5 shrink-0"
+                    style={region.kind === 'exclude' ? { border: `1px dashed ${color}` } : { background: color }}
+                    aria-hidden
+                  />
                   <input
-                    className="input h-6 min-w-0 flex-1 font-sans"
+                    className="input min-w-0 flex-1 bg-transparent px-1 group-hover:bg-field focus:bg-field"
                     aria-label="영역 이름"
                     maxLength={40}
                     value={region.name}
@@ -100,10 +107,10 @@ export function AreaPanel() {
                     onChange={(e) => renameRegion(region.id, e.target.value)}
                     data-testid="region-name"
                   />
-                  <span className="shrink-0 text-[10px] text-faint">{region.kind === 'include' ? '생성' : '제외'}</span>
+                  <span className="shrink-0 text-[11px] text-faint">{region.kind === 'include' ? '생성' : '제외'}</span>
                   <button
                     type="button"
-                    className="shrink-0 px-1 text-muted hover:text-danger"
+                    className="flex h-5 w-5 shrink-0 items-center justify-center text-faint hover:text-danger"
                     aria-label={`${region.name} 삭제`}
                     onClick={(e) => {
                       e.stopPropagation()
@@ -114,7 +121,7 @@ export function AreaPanel() {
                     ×
                   </button>
                 </div>
-                {problem && <p className="mt-1 text-[11px] text-danger">{problem}</p>}
+                {problem && <p className="pb-1 pl-[18px] text-[11px] text-danger">{problem}</p>}
               </li>
             )
           })}
@@ -122,10 +129,10 @@ export function AreaPanel() {
       )}
 
       {selected && tool === 'select' && (
-        <>
-          <p className="mt-2 text-[11px] text-faint">꼭짓점 드래그: 이동 · 변 중앙 □: 점 추가 · 꼭짓점 우클릭: 삭제</p>
+        <div>
+          <p className="text-[11px] text-faint">꼭짓점 드래그: 이동 · 변 중앙 □: 점 추가 · 꼭짓점 우클릭: 삭제</p>
           <PointList points={selected.polygon} testId="region-points" title={`좌표 · ${selected.name}`} />
-        </>
+        </div>
       )}
     </Section>
   )
@@ -133,11 +140,11 @@ export function AreaPanel() {
 
 export function PointList({ points, testId, title }: { points: Point[]; testId: string; title: string }) {
   return (
-    <details className="mt-1.5 text-[11px]">
-      <summary className="cursor-pointer text-muted select-none">
+    <details className="mt-1 text-[11px]">
+      <summary className="cursor-pointer text-muted select-none hover:text-ink">
         {title} ({points.length})
       </summary>
-      <ol className="num mt-1 max-h-28 overflow-y-auto rounded border border-line bg-bg px-2 py-1 text-muted" data-testid={testId}>
+      <ol className="num mt-1 max-h-28 overflow-y-auto bg-field px-2 py-1 text-muted" data-testid={testId}>
         {points.map(([x, y], i) => (
           <li key={i} data-x={x} data-y={y}>
             <span className="inline-block w-6 text-faint">{i + 1}</span>
@@ -188,7 +195,7 @@ export function PolygonHandles({
             y={my - r * 0.6}
             width={r * 1.2}
             height={r * 1.2}
-            fill="#0f141b"
+            fill="#1c1c1c"
             stroke={color}
             strokeWidth={1}
             strokeScaleEnabled={false}
@@ -213,7 +220,7 @@ export function PolygonHandles({
             y={cy}
             radius={r}
             fill={color}
-            stroke="#0a0d12"
+            stroke="#111111"
             strokeWidth={1.5}
             strokeScaleEnabled={false}
             draggable
@@ -283,14 +290,14 @@ export function RegionLayer({ scale, imageSize, hover, showRegions }: { scale: n
                 strokeScaleEnabled={false}
                 dash={excluded ? [5, 4] : undefined}
                 // The transparent fill still makes the interior clickable for selection.
-                fill={excluded ? 'rgba(10,13,18,0.3)' : isSelected ? withAlpha(color, 0.1) : 'rgba(0,0,0,0)'}
+                fill={excluded ? 'rgba(17,17,17,0.35)' : isSelected ? withAlpha(color, 0.1) : 'rgba(0,0,0,0)'}
                 hitStrokeWidth={8}
                 listening={tool === 'select'}
                 onClick={() => selectRegion(region.id)}
                 onTap={() => selectRegion(region.id)}
               />
               <Label x={lx} y={ly - font * 2} listening={false}>
-                <Tag fill="rgba(10,13,18,0.8)" cornerRadius={2 / scale} />
+                <Tag fill="rgba(20,20,20,0.85)" cornerRadius={2 / scale} />
                 <Text text={region.name} fontSize={font} padding={3 / scale} fill={color} />
               </Label>
             </Group>
@@ -325,7 +332,7 @@ export function RegionLayer({ scale, imageSize, hover, showRegions }: { scale: n
               x={pixelCenter(p)[0]}
               y={pixelCenter(p)[1]}
               radius={i === 0 ? r * 1.35 : r * 0.8}
-              fill={i === 0 ? '#0a0d12' : draftStroke}
+              fill={i === 0 ? '#111111' : draftStroke}
               stroke={draftStroke}
               strokeWidth={1.5}
               strokeScaleEnabled={false}
@@ -376,7 +383,7 @@ export function LineLayer({ scale, imageSize, hover }: { scale: number; imageSiz
               x={pixelCenter(line[which])[0]}
               y={pixelCenter(line[which])[1]}
               radius={r}
-              fill={which === 'start' ? '#0a0d12' : LINE_COLOR}
+              fill={which === 'start' ? '#111111' : LINE_COLOR}
               stroke={LINE_COLOR}
               strokeWidth={1.5}
               strokeScaleEnabled={false}
@@ -392,14 +399,14 @@ export function LineLayer({ scale, imageSize, hover }: { scale: number; imageSiz
             />
           ))}
           <Label x={pixelCenter(line.end)[0] + 8 / scale} y={pixelCenter(line.end)[1]} listening={false}>
-            <Tag fill="rgba(10,13,18,0.8)" cornerRadius={2 / scale} />
+            <Tag fill="rgba(20,20,20,0.85)" cornerRadius={2 / scale} />
             <Text text={`기준선 ${angle?.toFixed(1)}°`} fontSize={11 / scale} padding={3 / scale} fill={LINE_COLOR} />
           </Label>
         </>
       )}
       {draft && (
         <>
-          <Circle x={pixelCenter(draft)[0]} y={pixelCenter(draft)[1]} radius={r} fill="#0a0d12" stroke={LINE_COLOR} strokeWidth={1.5} strokeScaleEnabled={false} listening={false} />
+          <Circle x={pixelCenter(draft)[0]} y={pixelCenter(draft)[1]} radius={r} fill="#111111" stroke={LINE_COLOR} strokeWidth={1.5} strokeScaleEnabled={false} listening={false} />
           {hover && (
             <Line
               points={[...pixelCenter(draft), ...pixelCenter(toPixel(hover, imageSize))]}

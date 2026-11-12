@@ -67,18 +67,12 @@ export function ImageUploader() {
     <Section
       title="이미지"
       aside={
-        <span className="flex gap-2.5">
-          <span className="text-[11px] text-faint">예시</span>
-          <button type="button" className="text-[11px] text-accent hover:underline" onClick={() => loadSample(SAMPLE_URL)} title="절차적으로 만든 금속 표면 합성 이미지" data-testid="load-sample">
-            금속 표면
+        <span className="flex items-center gap-2 text-[11px]">
+          <span className="text-faint">예시</span>
+          <button type="button" className="link" onClick={() => loadSample(SAMPLE_URL)} title="절차적으로 만든 금속 표면 합성 이미지" data-testid="load-sample">
+            금속
           </button>
-          <button
-            type="button"
-            className="text-[11px] text-accent hover:underline"
-            onClick={() => loadSample(PART_SAMPLE_URL)}
-            title="절차적으로 만든 칩 부품 형태의 합성 이미지 (실제 부품 사진 아님)"
-            data-testid="load-sample-part"
-          >
+          <button type="button" className="link" onClick={() => loadSample(PART_SAMPLE_URL)} title="절차적으로 만든 칩 부품 형태의 합성 이미지 (실제 부품 사진 아님)" data-testid="load-sample-part">
             부품
           </button>
         </span>
@@ -88,6 +82,7 @@ export function ImageUploader() {
         role="button"
         tabIndex={0}
         data-testid="dropzone"
+        title="클릭하거나 파일을 끌어다 놓으세요"
         onClick={() => inputRef.current?.click()}
         onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && inputRef.current?.click()}
         onDragOver={(e) => {
@@ -96,29 +91,28 @@ export function ImageUploader() {
         }}
         onDragLeave={() => setDragging(false)}
         onDrop={onDrop}
-        className={`flex cursor-pointer flex-col items-center justify-center gap-1 rounded border border-dashed px-3 text-center transition-colors ${
-          sourceFile ? 'py-2.5' : 'py-6'
-        } ${dragging ? 'border-accent bg-accent/10' : 'border-line-strong bg-bg hover:border-faint'}`}
+        className={`-mx-1 cursor-pointer rounded-[2px] px-1 py-1 transition-colors ${dragging ? 'bg-raised outline outline-1 outline-muted' : 'hover:bg-[#2a2a2a]'} ${
+          sourceFile ? '' : 'border border-dashed border-line-strong py-5 text-center'
+        }`}
       >
         {loading ? (
           <span className="text-muted">이미지 확인 중…</span>
         ) : sourceFile ? (
-          <>
-            <span className="max-w-full truncate font-medium text-ink" title={sourceFile.name} data-testid="source-name">
-              {sourceFile.name}
-            </span>
+          <div className="grid gap-0.5">
+            <div className="flex items-baseline gap-2">
+              <span className="min-w-0 flex-1 truncate text-ink" title={sourceFile.name} data-testid="source-name">
+                {sourceFile.name}
+              </span>
+              <span className="shrink-0 text-[11px] text-faint">교체</span>
+            </div>
             <span className="num text-[11px] text-muted" data-testid="source-meta">
               {size && `${size.width} × ${size.height} px`} · {formatBytes(sourceFile.size)}
             </span>
-            <span className="text-[11px] text-faint">클릭 또는 드롭하여 교체</span>
-          </>
+          </div>
         ) : (
           <>
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-faint" aria-hidden>
-              <path d="M12 16V4m0 0-4 4m4-4 4 4M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
-            </svg>
-            <span className="font-medium text-ink">정상 이미지를 드롭하거나 클릭</span>
-            <span className="text-[11px] text-muted">PNG · JPEG · WebP · 최대 10 MiB · 32–2048 px</span>
+            <span className="block text-ink">정상 이미지를 끌어다 놓거나 클릭</span>
+            <span className="mt-0.5 block text-[11px] text-faint">PNG · JPEG · WebP · 최대 10 MiB · 32–2048 px</span>
           </>
         )}
       </div>

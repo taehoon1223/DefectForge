@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useWorkspaceStore } from '../store/useWorkspaceStore'
-import { DefectControls, GenerationSettings } from './DefectControls'
+import { DefectControls, GenerateBar, GenerationSettings } from './DefectControls'
 import { ExportButton, ExportPanel } from './ExportPanel'
 import { MaskLegend } from './MaskLegend'
 import { StatusBar } from './StatusBar'
@@ -78,17 +78,32 @@ describe('DefectControls', () => {
 
 describe('GenerationSettings', () => {
   it('disables generation until an image is loaded', () => {
-    const { rerender } = render(<GenerationSettings />)
+    const { rerender } = render(
+      <>
+        <GenerationSettings />
+        <GenerateBar />
+      </>,
+    )
     expect(screen.getByTestId('generate')).toBeDisabled()
     expect(screen.getByTestId('blocked-reason')).toHaveTextContent('이미지를 먼저 업로드하세요')
     loadImage()
-    rerender(<GenerationSettings />)
+    rerender(
+      <>
+        <GenerationSettings />
+        <GenerateBar />
+      </>,
+    )
     expect(screen.getByTestId('generate')).toBeEnabled()
   })
 
   it('validates the seed', async () => {
     loadImage()
-    render(<GenerationSettings />)
+    render(
+      <>
+        <GenerationSettings />
+        <GenerateBar />
+      </>,
+    )
     const seed = screen.getByTestId('seed-input')
     await userEvent.clear(seed)
     await userEvent.type(seed, '-3')

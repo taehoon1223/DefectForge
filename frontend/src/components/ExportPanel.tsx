@@ -1,6 +1,6 @@
 import { blockingReason, useWorkspaceStore } from '../store/useWorkspaceStore'
 import { LIMITS } from '../types/generation'
-import { FieldError, NumberField, Section, Spinner } from './ui'
+import { FieldError, NumberField, Row, Section, Spinner } from './ui'
 
 function countError(count: number): string | undefined {
   const { min, max } = LIMITS.exportCount
@@ -16,9 +16,8 @@ export function ExportPanel() {
   const { min, max } = LIMITS.exportCount
 
   return (
-    <Section title="데이터셋 내보내기 (ZIP)" testId="export-panel">
-      <div className="flex items-center gap-2">
-        <span className="label shrink-0">생성 장수</span>
+    <Section title="내보내기" testId="export-panel">
+      <Row label="장수">
         <input
           type="range"
           min={min}
@@ -28,18 +27,18 @@ export function ExportPanel() {
           onChange={(e) => setCount(Number(e.target.value))}
           aria-label="생성 장수 슬라이더"
         />
-        <NumberField label="생성 장수" value={count} step={1} invalid={!!error} onChange={setCount} className="w-12 shrink-0 text-center" testId="export-count" />
-      </div>
+        <NumberField label="생성 장수" value={count} step={1} invalid={!!error} onChange={setCount} className="w-12 shrink-0 text-right" testId="export-count" />
+      </Row>
       <FieldError message={error} />
       {!error && Number.isFinite(seed) && (
-        <p className="num mt-2 flex justify-between text-[11px] text-muted">
-          <span>Seed (seed + i)</span>
-          <span className="text-ink" data-testid="export-seed-range">
+        <Row label="Seed">
+          <span className="num text-ink" data-testid="export-seed-range">
             {seed} … {seed + count - 1}
           </span>
-        </p>
+          <span className="text-[11px] text-faint">(seed + i)</span>
+        </Row>
       )}
-      <p className="mt-1.5 text-[11px] leading-relaxed text-faint" title="images/ · masks/ · binary_masks/ · metadata/ 폴더에 같은 번호로 1:1 매칭되는 파일과 manifest.json, README.txt">
+      <p className="text-[11px] leading-relaxed text-faint" title="images/ · masks/ · binary_masks/ · metadata/ 폴더에 같은 번호로 1:1 매칭되는 파일과 manifest.json, README.txt">
         이미지·마스크·메타데이터가 같은 번호로 묶인 ZIP을 하단 버튼으로 받습니다.
       </p>
     </Section>
@@ -55,7 +54,7 @@ export function ExportButton() {
   return (
     <button
       type="button"
-      className="btn btn-primary shrink-0"
+      className="btn shrink-0"
       disabled={!!blocked || invalid || isExporting}
       title={blocked ?? undefined}
       onClick={() => void exportDataset()}
