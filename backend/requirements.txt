@@ -1,0 +1,13 @@
+# Python 3.11 (tested with 3.11.9). Exact pins for reproducible output bytes.
+fastapi==0.162.4
+starlette==1.10.0
+uvicorn==0.54.0
+pydantic==2.14.3
+python-multipart==0.0.33
+numpy==2.4.6
+opencv-python-headless==4.14.0.94
+pillow==13.0.0
+
+# tests
+pytest==9.2.0
+httpx==0.28.1

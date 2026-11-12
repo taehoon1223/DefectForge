@@ -1,0 +1,19 @@
+{
+  "version": "1.0",
+  "seed": 7,
+  "roi": null,
+  "allow_overlap": false,
+  "defects": [
+    {
+      "type": "pinhole",
+      "count": 8,
+      "params": {
+        "radius_px": [2, 6],
+        "irregularity": 0.35,
+        "contrast": [0.3, 0.9],
+        "polarity": "bright",
+        "rim_strength": 0.2
+      }
+    }
+  ]
+}

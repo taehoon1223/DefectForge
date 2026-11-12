@@ -1,0 +1,19 @@
+{
+  "version": "1.0",
+  "seed": 123,
+  "roi": [[60, 80], [300, 40], [470, 200], [380, 410], [90, 380]],
+  "allow_overlap": false,
+  "defects": [
+    {
+      "type": "contamination",
+      "count": 4,
+      "params": {
+        "radius_px": [10, 30],
+        "irregularity": 0.6,
+        "opacity": [0.35, 0.75],
+        "blur_sigma": 2.0,
+        "polarity": "dark"
+      }
+    }
+  ]
+}
