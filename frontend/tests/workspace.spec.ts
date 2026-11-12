@@ -34,9 +34,9 @@ async function pixelToPage(page: Page, px: number, py: number) {
   return { x: v.box.x + v.x + (px + 0.5) * v.scale, y: v.box.y + v.y + (py + 0.5) * v.scale }
 }
 
-async function roiPoints(page: Page): Promise<number[][]> {
+async function regionPoints(page: Page): Promise<number[][]> {
   return page
-    .getByTestId('roi-points')
+    .getByTestId('region-points')
     .locator('li')
     .evaluateAll((items) => items.map((li) => [Number((li as HTMLElement).dataset.x), Number((li as HTMLElement).dataset.y)]))
 }
@@ -53,7 +53,7 @@ async function download(page: Page) {
 
 test('업로드 → 생성 미리보기 → 보기 모드 전환 → 원본 크기 결과', async ({ page }) => {
   await upload(page)
-  await expect(page.getByTestId('roi-status')).toContainText('전체 이미지')
+  await expect(page.getByTestId('area-status')).toContainText('이미지 전체')
   const response = await generate(page)
   expect(response.status()).toBe(200)
   const body = await response.json()
@@ -89,7 +89,7 @@ test('T13: 오버레이 불투명도를 바꿔도 결과 파일은 미리보기�
   expect(same('binary_masks/binary_0001.png', preview.binary_mask_png_base64)).toBe(true)
 })
 
-test('T14: 확대·팬 이후 클릭한 ROI 꼭짓점이 원본 픽셀 좌표와 1px 이내로 일치', async ({ page }) => {
+test('T14: 확대·팬 이후 클릭한 영역 꼭짓점이 원본 픽셀 좌표와 1px 이내로 일치', async ({ page }) => {
   await upload(page)
   await page.getByTestId('zoom-in').click()
   await page.getByTestId('zoom-in').click()
@@ -113,7 +113,7 @@ test('T14: 확대·팬 이후 클릭한 ROI 꼭짓점이 원본 픽셀 좌표와
   const at = (fx: number, fy: number) => [Math.floor(left + (right - left) * fx), Math.floor(top + (bottom - top) * fy)]
   const targets = [at(0.2, 0.2), at(0.8, 0.25), at(0.75, 0.8), at(0.25, 0.75)]
 
-  await page.getByTestId('tool-draw').click()
+  await page.getByTestId('add-include').click()
   for (const [px, py] of targets) {
     const p = await pixelToPage(page, px, py)
     expect(p.x).toBeGreaterThan(v.box.x)
@@ -121,8 +121,9 @@ test('T14: 확대·팬 이후 클릭한 ROI 꼭짓점이 원본 픽셀 좌표와
     await page.mouse.click(p.x, p.y)
   }
   await page.keyboard.press('Enter')
-  await expect(page.getByTestId('roi-status')).toContainText('다각형 ROI · 4점')
-  const points = await roiPoints(page)
+  await expect(page.getByTestId('area-status')).toContainText('생성 영역 1개')
+  const points = await regionPoints(page)
+  expect(points).toHaveLength(4)
   targets.forEach(([tx, ty], i) => {
     expect(Math.abs(points[i][0] - tx)).toBeLessThanOrEqual(1)
     expect(Math.abs(points[i][1] - ty)).toBeLessThanOrEqual(1)
@@ -135,15 +136,15 @@ test('T14: 확대·팬 이후 클릭한 ROI 꼭짓점이 원본 픽셀 좌표와
   await page.mouse.down()
   await page.mouse.move(to.x, to.y, { steps: 8 })
   await page.mouse.up()
-  const moved = await roiPoints(page)
+  const moved = await regionPoints(page)
   expect(Math.abs(moved[0][0] - (points[0][0] + 12))).toBeLessThanOrEqual(1)
   expect(Math.abs(moved[0][1] - points[0][1])).toBeLessThanOrEqual(1)
 
-  // The server echoes the ROI it received (metadata.roi / metadata.config.roi) and keeps every defect inside it.
+  // The server echoes the region it received (config.regions / area.regions) and keeps every defect inside it.
   const response = await generate(page)
   const meta = (await response.json()).metadata
-  expect(meta.config.roi).toEqual(moved)
-  expect(meta.roi).toEqual(moved)
+  expect(meta.config.regions[0].polygon).toEqual(moved)
+  expect(meta.area.regions[0].polygon).toEqual(moved)
   const xs = moved.map((p) => p[0])
   const ys = moved.map((p) => p[1])
   for (const inst of meta.instances) {
@@ -203,6 +204,7 @@ test('잘못된 파일·파라미터·불가능한 배치를 한국어로 안내
   await expect(page.getByTestId('generate')).toBeDisabled()
 
   await page.getByTestId('count-scratch').fill('20')
+  await page.getByTestId('details-scratch').click()
   await page.getByTestId('scratch-length-min').fill('500')
   await page.getByTestId('scratch-length-max').fill('512')
   const response = await generate(page)
@@ -214,7 +216,7 @@ test('잘못된 파일·파라미터·불가능한 배치를 한국어로 안내
   await expect(page.getByTestId('generate')).toBeEnabled()
 })
 
-test('설정 변경 표시, 이미지 교체 시 ROI·결과 초기화', async ({ page }) => {
+test('설정 변경 표시, 이미지 교체 시 영역·결과 초기화', async ({ page }) => {
   await upload(page)
   await generate(page)
   await expect(page.getByTestId('generated-count')).toHaveText('7 / 7')
@@ -227,7 +229,7 @@ test('설정 변경 표시, 이미지 교체 시 ROI·결과 초기화', async (
   await expect(page.getByTestId('result-seed')).toHaveText('43')
   await expect(page.getByTestId('stale-badge')).toHaveCount(0)
 
-  await page.getByTestId('tool-draw').click()
+  await page.getByTestId('add-include').click()
   for (const [px, py] of [
     [100, 100],
     [300, 120],
@@ -236,11 +238,11 @@ test('설정 변경 표시, 이미지 교체 시 ROI·결과 초기화', async (
     const p = await pixelToPage(page, px, py)
     await page.mouse.click(p.x, p.y)
   }
-  await page.getByTestId('roi-close').click()
-  await expect(page.getByTestId('roi-status')).toContainText('다각형 ROI · 3점')
+  await page.getByTestId('region-close').click()
+  await expect(page.getByTestId('area-status')).toContainText('생성 영역 1개')
 
   await page.getByTestId('file-input').setInputFiles(SAMPLE)
-  await expect(page.getByTestId('roi-status')).toContainText('전체 이미지')
+  await expect(page.getByTestId('area-status')).toContainText('이미지 전체')
   await expect(page.getByTestId('generation-summary')).toContainText('아직 생성된 결과가 없습니다')
 })
 
@@ -256,9 +258,9 @@ test.describe('모바일 화면', () => {
     await expect(page.getByTestId('export-button')).toBeEnabled()
   })
 
-  test('터치 탭으로 ROI 꼭짓점을 추가할 수 있다', async ({ page }) => {
+  test('터치 탭으로 영역 꼭짓점을 추가할 수 있다', async ({ page }) => {
     await upload(page)
-    await page.getByTestId('tool-draw').click()
+    await page.getByTestId('add-include').click()
     await page.getByTestId('canvas-container').scrollIntoViewIfNeeded()
     const targets = [
       [80, 80],
@@ -270,9 +272,9 @@ test.describe('모바일 화면', () => {
       await page.touchscreen.tap(p.x, p.y)
       await page.waitForTimeout(400) // keep taps apart so they are not read as a double-tap
     }
-    await page.getByTestId('roi-close').click()
-    await expect(page.getByTestId('roi-status')).toContainText('다각형 ROI · 3점')
-    const points = await roiPoints(page)
+    await page.getByTestId('region-close').click()
+    await expect(page.getByTestId('area-status')).toContainText('생성 영역 1개')
+    const points = await regionPoints(page)
     targets.forEach(([tx, ty], i) => {
       expect(Math.abs(points[i][0] - tx)).toBeLessThanOrEqual(1)
       expect(Math.abs(points[i][1] - ty)).toBeLessThanOrEqual(1)

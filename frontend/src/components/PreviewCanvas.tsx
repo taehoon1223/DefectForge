@@ -4,10 +4,10 @@ import { Image as KImage, Layer, Rect, Stage } from 'react-konva'
 import { clampScale, fitView, imageToScreen, isInsideImage, toPixel, zoomAt, type Vec, type ViewTransform } from '../lib/geometry'
 import { useColorizedMask, useElementSize, useHtmlImage } from '../lib/hooks'
 import { pngDataUrl } from '../lib/maskColors'
-import { addDraftPoint, closeDraft, useRoiKeyboard } from '../lib/roiActions'
+import { addDraftPoint, addLinePoint, closeDraft, useDrawKeyboard } from '../lib/drawActions'
 import { currentConfigHash, useWorkspaceStore } from '../store/useWorkspaceStore'
-import type { ViewMode } from '../types/generation'
-import { RoiLayer } from './RoiEditor'
+import { needsReferenceLine, type ViewMode } from '../types/generation'
+import { LineLayer, RegionLayer } from './AreaEditor'
 import { Spinner } from './ui'
 
 const VIEW_TABS: Array<{ mode: ViewMode; label: string }> = [
@@ -28,6 +28,7 @@ export function PreviewCanvas() {
   const [view, setView] = useState<ViewTransform>({ scale: 1, x: 0, y: 0 })
   const [hover, setHover] = useState<Vec | null>(null)
   const [spaceHeld, setSpaceHeld] = useState(false)
+  const [hideRegions, setHideRegions] = useState(false)
   const fittedVersion = useRef(-1)
   const lastClick = useRef<{ t: number; x: number; y: number } | null>(null)
   const lastTouch = useRef(Number.NEGATIVE_INFINITY)
@@ -40,7 +41,10 @@ export function PreviewCanvas() {
   const setViewMode = useWorkspaceStore((s) => s.setViewMode)
   const opacity = useWorkspaceStore((s) => s.overlayOpacity)
   const tool = useWorkspaceStore((s) => s.tool)
-  const draft = useWorkspaceStore((s) => s.roiDraft)
+  const hasOverlays = useWorkspaceStore((s) => s.regions.length > 0 || (s.referenceLine !== null && needsReferenceLine(s.form)))
+  const showLine = useWorkspaceStore((s) => needsReferenceLine(s.form) || s.tool === 'line')
+  const selectRegion = useWorkspaceStore((s) => s.selectRegion)
+  const draft = useWorkspaceStore((s) => s.draft)
   const isGenerating = useWorkspaceStore((s) => s.isGenerating)
   const stale = useWorkspaceStore((s) => s.currentResult !== null && s.currentResultConfigHash !== currentConfigHash(s))
 
@@ -48,7 +52,7 @@ export function PreviewCanvas() {
   const resultImg = useHtmlImage(result ? pngDataUrl(result.image_png_base64) : null)
   const maskCanvas = useColorizedMask(result?.class_mask_png_base64 ?? null)
 
-  useRoiKeyboard()
+  useDrawKeyboard()
 
   // Fit each newly loaded image once the viewport has a size.
   useEffect(() => {
@@ -81,15 +85,19 @@ export function PreviewCanvas() {
     return stage.getAbsoluteTransform().copy().invert().point(pos)
   }
 
-  /** Add a ROI vertex in draw mode (mouse click or touch tap). */
+  /** Add a polygon vertex (draw tool) or a reference-line point (line tool) — mouse click or touch tap. */
   const handleDrawClick = (evt: MouseEvent | TouchEvent) => {
-    if (tool !== 'draw' || spaceHeld || !size || ('button' in evt && evt.button !== 0)) return
+    if ((tool !== 'draw' && tool !== 'line') || spaceHeld || !size || ('button' in evt && evt.button !== 0)) return
     // Browsers follow a tap with a compatibility mouse click; handle each physical tap once.
     if (!('button' in evt)) lastTouch.current = evt.timeStamp
     else if (evt.timeStamp - lastTouch.current < TOUCH_CLICK_GUARD_MS) return
     const p = pointerInImage()
     const pointer = stageRef.current?.getPointerPosition()
     if (!p || !pointer) return
+    if (tool === 'line') {
+      addLinePoint(toPixel(p, size))
+      return
+    }
     // Own double-click test: Konva's dblclick ignores distance, so two quick clicks at
     // different spots would close the polygon by accident.
     const prev = lastClick.current
@@ -110,6 +118,8 @@ export function PreviewCanvas() {
   }
 
   const panning = tool === 'select' || spaceHeld
+  // View-only toggle; overlays always show while drawing so the user sees what they draw.
+  const showOverlays = !hideRegions || tool !== 'select'
   const hoverPixel = hover && size && isInsideImage(hover, size) ? toPixel(hover, size) : null
   const hasResult = !!result
   const effectiveMode: ViewMode = hasResult ? viewMode : 'original'
@@ -140,6 +150,17 @@ export function PreviewCanvas() {
           </span>
         )}
         <div className="ml-auto flex items-center gap-1">
+          {hasOverlays && (
+            <button
+              type="button"
+              className="btn btn-ghost h-7 px-2"
+              aria-pressed={hideRegions}
+              onClick={() => setHideRegions((v) => !v)}
+              data-testid="toggle-regions"
+            >
+              {hideRegions ? '영역 표시' : '영역 숨기기'}
+            </button>
+          )}
           <button type="button" className="btn btn-ghost btn-icon" aria-label="축소" disabled={!size} onClick={() => zoomBy(1 / ZOOM_STEP)} data-testid="zoom-out">
             −
           </button>
@@ -199,7 +220,11 @@ export function PreviewCanvas() {
             onMouseMove={() => setHover(pointerInImage())}
             onMouseLeave={() => setHover(null)}
             onTap={(e) => handleDrawClick(e.evt)}
-            onClick={(e) => handleDrawClick(e.evt)}
+            onClick={(e) => {
+              // A click on empty canvas in select mode clears the region selection.
+              if (tool === 'select' && e.target === e.target.getStage()) selectRegion(null)
+              handleDrawClick(e.evt)
+            }}
           >
             <Layer imageSmoothingEnabled={false} listening={false}>
               {(effectiveMode === 'original' || !resultImg) && (
@@ -219,8 +244,13 @@ export function PreviewCanvas() {
               <Rect width={size.width} height={size.height} stroke="#2f3a4a" strokeWidth={1} strokeScaleEnabled={false} />
             </Layer>
             <Layer>
-              <RoiLayer scale={view.scale} imageSize={size} hover={hover} />
+              <RegionLayer scale={view.scale} imageSize={size} hover={hover} showRegions={showOverlays} />
             </Layer>
+            {showOverlays && showLine && (
+              <Layer>
+                <LineLayer scale={view.scale} imageSize={size} hover={hover} />
+              </Layer>
+            )}
           </Stage>
         )}
 
@@ -228,7 +258,7 @@ export function PreviewCanvas() {
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-center">
             <p className="text-[14px] font-medium text-ink">정상 이미지를 업로드하세요</p>
             <p className="max-w-sm text-[12px] leading-relaxed text-muted">
-              왼쪽 패널에서 PNG/JPEG/WebP 파일을 올리거나 예시 이미지를 불러오면 여기에서 ROI를 그리고 합성 결과와 마스크를 확인할 수 있습니다.
+              왼쪽 패널에서 PNG/JPEG/WebP 파일을 올리거나 예시 이미지를 불러오면 여기에서 영역을 그리고 합성 결과와 마스크를 확인할 수 있습니다.
             </p>
           </div>
         )}
@@ -248,7 +278,7 @@ export function PreviewCanvas() {
             원본 {size.width} × {size.height} px
           </span>
         )}
-        <span className="ml-auto hidden sm:inline">휠: 확대/축소 · {tool === 'draw' ? 'Space+드래그' : '드래그'}: 이동</span>
+        <span className="ml-auto hidden sm:inline">휠: 확대/축소 · {tool === 'select' ? '드래그' : 'Space+드래그'}: 이동</span>
       </div>
     </div>
   )

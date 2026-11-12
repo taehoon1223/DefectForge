@@ -29,10 +29,9 @@ export function Header() {
       </svg>
       <div className="flex min-w-0 items-baseline gap-3">
         <h1 className="text-[15px] font-semibold tracking-tight text-ink">DefectForge</h1>
-        <p className="hidden truncate text-[12px] text-muted md:block">정상 표면 이미지에 합성 결함을 넣고 픽셀 단위로 정합된 GT 마스크를 생성하는 검사 데이터 워크벤치</p>
+        <p className="hidden truncate text-[12px] text-muted md:block">정상 이미지에 합성 결함과 픽셀 단위 정답 마스크를 만듭니다</p>
       </div>
       <div className="ml-auto flex items-center gap-3 text-[11px]">
-        <span className="hidden text-faint sm:inline">GitHub: 공개 예정</span>
         <span
           className="flex items-center gap-1.5 rounded border border-line bg-bg px-2 py-1"
           title={API_BASE_URL}

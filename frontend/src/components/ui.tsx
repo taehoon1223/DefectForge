@@ -13,6 +13,29 @@ export function Section({ title, aside, children, testId }: { title: string; asi
   )
 }
 
+/** Folded "details" block. `forceOpen` (e.g. a field error inside) opens it and keeps it open. */
+export function Disclosure({ title, children, forceOpen = false, testId }: { title: string; children: ReactNode; forceOpen?: boolean; testId?: string }) {
+  const [open, setOpen] = useState(false)
+  if (forceOpen && !open) setOpen(true)
+  return (
+    <div className="mt-2.5">
+      <button
+        type="button"
+        className="flex items-center gap-1 text-[11px] text-muted select-none hover:text-ink"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        data-testid={testId}
+      >
+        <span aria-hidden className={`inline-block transition-transform ${open ? 'rotate-90' : ''}`}>
+          ▸
+        </span>
+        {title}
+      </button>
+      {open && <div className="mt-2 grid gap-2.5">{children}</div>}
+    </div>
+  )
+}
+
 export function FieldError({ message }: { message?: string }) {
   if (!message) return null
   return (

@@ -9,13 +9,19 @@ function detailLines(error: ErrorInfo): string[] {
     return (d.errors as Array<{ field: string; message: string }>).map((e) => `${e.field}: ${e.message}`)
   }
   if (d.rejections && typeof d.rejections === 'object') {
-    const labels: Record<string, string> = { out_of_image: '이미지 경계', outside_roi: 'ROI 밖', overlap: '겹침', no_visible_change: '변화 없음' }
+    const labels: Record<string, string> = { out_of_image: '이미지 경계', outside_roi: '허용 영역 밖', overlap: '겹침', no_visible_change: '변화 없음' }
     return [
       `거절 사유(${d.attempts}회 시도): ` +
         Object.entries(d.rejections as Record<string, number>)
           .filter(([, n]) => n > 0)
           .map(([k, n]) => `${labels[k] ?? k} ${n}`)
           .join(' · '),
+    ]
+  }
+  if (error.code === 'EMPTY_ALLOWED_AREA') {
+    const n = (key: string) => Number(d[key] ?? 0).toLocaleString()
+    return [
+      `생성 영역 ${n('include_pixel_count')}px → 제외 후 ${n('base_pixel_count')}px → 경계 여유 ${String(d.edge_margin_px)}px 적용 후 ${n('allowed_pixel_count')}px`,
     ]
   }
   return []

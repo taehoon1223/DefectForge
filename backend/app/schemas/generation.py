@@ -74,8 +74,10 @@ ROI_MAX_POINTS = 256
 
 
 def _range(defect: str, name: str) -> Any:
-    lo, hi = LIMITS[defect][name]
+    return _range_between(*LIMITS[defect][name])
 
+
+def _range_between(lo: float, hi: float) -> Any:
     def check(value: tuple[float, float]) -> tuple[float, float]:
         a, b = value
         if not (lo <= a <= hi and lo <= b <= hi):
@@ -152,6 +154,14 @@ class ContaminationDefect(_Strict):
 DefectSpec = Annotated[Union[ScratchDefect, PinholeDefect, ContaminationDefect], Field(discriminator="type")]
 
 
+def _check_unique_types(defects: list[Any]) -> list[Any]:
+    types = [d.type for d in defects]
+    duplicated = sorted({t for t in types if types.count(t) > 1})
+    if duplicated:
+        raise ValueError(f"결함 유형은 한 번씩만 지정할 수 있습니다 (중복: {', '.join(duplicated)}). 개수는 count로 조절하세요")
+    return defects
+
+
 class GenerationConfig(_Strict):
     version: Literal["1.0"] = CONFIG_VERSION
     seed: Annotated[int, Field(ge=0, le=SEED_MAX)] = 42
@@ -163,15 +173,115 @@ class GenerationConfig(_Strict):
     @field_validator("defects")
     @classmethod
     def _unique_types(cls, defects: list[Any]) -> list[Any]:
-        types = [d.type for d in defects]
-        duplicated = sorted({t for t in types if types.count(t) > 1})
-        if duplicated:
-            raise ValueError(f"결함 유형은 한 번씩만 지정할 수 있습니다 (중복: {', '.join(duplicated)}). 개수는 count로 조절하세요")
-        return defects
+        return _check_unique_types(defects)
 
     @property
     def requested_count(self) -> int:
         return sum(d.count for d in self.defects)
+
+
+# ---------------------------------------------------------------- config 1.1: areas + scratch options
+
+V11_CONFIG_VERSION = "1.1"
+
+# Config 1.1 is a superset of 1.0: the same defects plus include/exclude areas, an edge margin and
+# scratch direction / surface-matching options. With no regions, margin 0, orientation "random" and
+# shading "fixed" it produces exactly the 1.0 pixels (tests/test_v11_generation.py).
+AREA_LIMITS: dict[str, tuple[float, float]] = {"edge_margin_px": (0, 50)}
+AREA_DEFAULTS: dict[str, Any] = {"edge_margin_px": 0}
+
+SCRATCH_OPTION_LIMITS: dict[str, tuple[float, float]] = {
+    "angle_deg": (0, 180),
+    "jitter_deg": (0, 45),
+    "window_sigma_px": (2, 32),
+    "min_texture_ratio": (0, 4),
+}
+SCRATCH_OPTION_DEFAULTS: dict[str, Any] = {
+    "orientation": {"mode": "random", "angle_deg": 0, "jitter_deg": 5},
+    "shading": {"mode": "fixed", "window_sigma_px": 6, "min_texture_ratio": 1.0},
+}
+
+REGION_MAX_COUNT = 32
+REGION_ID_PATTERN = r"^[A-Za-z0-9_-]+$"
+REFERENCE_LINE_MIN_LENGTH_PX = 4
+
+RegionKind = Literal["include", "exclude"]
+OrientationMode = Literal["random", "parallel", "perpendicular", "absolute"]
+
+
+def _option(name: str) -> Any:
+    lo, hi = SCRATCH_OPTION_LIMITS[name]
+    return Annotated[float, Field(ge=lo, le=hi)]
+
+
+class RegionSpec(_Strict):
+    id: Annotated[str, Field(min_length=1, max_length=64, pattern=REGION_ID_PATTERN)]
+    name: Annotated[str, Field(min_length=1, max_length=40, description="표시용 이름. 생성 결과에 영향 없음")]
+    kind: RegionKind
+    # Validated against the decoded image (same rules as the 1.0 ROI) in core/regions.py.
+    polygon: Annotated[list[tuple[int, int]], Field(max_length=ROI_MAX_POINTS)]
+
+
+class ReferenceLine(_Strict):
+    """Direction reference through two pixel centres; direction is taken modulo 180 degrees."""
+
+    start: tuple[int, int]
+    end: tuple[int, int]
+
+
+class OrientationSpec(_Strict):
+    # random = uniform in params.angle_deg (1.0 behaviour); parallel/perpendicular = relative to the
+    # reference line; absolute = angle_deg. jitter applies to every mode except random.
+    mode: OrientationMode = SCRATCH_OPTION_DEFAULTS["orientation"]["mode"]
+    angle_deg: _option("angle_deg") = SCRATCH_OPTION_DEFAULTS["orientation"]["angle_deg"]
+    jitter_deg: _option("jitter_deg") = SCRATCH_OPTION_DEFAULTS["orientation"]["jitter_deg"]
+
+
+class ShadingSpec(_Strict):
+    mode: Literal["fixed", "local"] = SCRATCH_OPTION_DEFAULTS["shading"]["mode"]
+    window_sigma_px: _option("window_sigma_px") = SCRATCH_OPTION_DEFAULTS["shading"]["window_sigma_px"]
+    min_texture_ratio: _option("min_texture_ratio") = SCRATCH_OPTION_DEFAULTS["shading"]["min_texture_ratio"]
+
+
+class AdaptiveScratchParams(ScratchParams):
+    orientation: OrientationSpec = Field(default_factory=OrientationSpec)
+    shading: ShadingSpec = Field(default_factory=ShadingSpec)
+
+
+class AdaptiveScratchDefect(_Strict):
+    type: Literal["scratch"]
+    count: _count("scratch") = DEFAULTS["scratch"]["count"]
+    params: AdaptiveScratchParams = Field(default_factory=AdaptiveScratchParams)
+
+
+DefectSpecV11 = Annotated[Union[AdaptiveScratchDefect, PinholeDefect, ContaminationDefect], Field(discriminator="type")]
+
+
+class GenerationConfigV11(_Strict):
+    version: Literal["1.1"]
+    seed: Annotated[int, Field(ge=0, le=SEED_MAX)] = 42
+    allow_overlap: bool = False
+    # No include region = the whole image. Exclude regions are removed from the include area.
+    regions: Annotated[list[RegionSpec], Field(max_length=REGION_MAX_COUNT)] = Field(default_factory=list)
+    edge_margin_px: Annotated[float, Field(ge=AREA_LIMITS["edge_margin_px"][0], le=AREA_LIMITS["edge_margin_px"][1])] = AREA_DEFAULTS["edge_margin_px"]
+    reference_line: ReferenceLine | None = None
+    defects: Annotated[list[DefectSpecV11], Field(min_length=1, max_length=3)]
+
+    @field_validator("defects")
+    @classmethod
+    def _unique_types(cls, defects: list[Any]) -> list[Any]:
+        return _check_unique_types(defects)
+
+    @property
+    def requested_count(self) -> int:
+        return sum(d.count for d in self.defects)
+
+    @property
+    def scratch(self) -> AdaptiveScratchDefect | None:
+        return next((d for d in self.defects if isinstance(d, AdaptiveScratchDefect)), None)
+
+
+AnyGenerationConfig = Union[GenerationConfig, GenerationConfigV11]
 
 
 # ---------------------------------------------------------------- responses
@@ -194,7 +304,7 @@ class InstanceInfo(BaseModel):
 
 
 class GenerationMetadata(BaseModel):
-    version: str
+    version: Literal["1.0"]
     engine_version: str
     seed: int
     source_sha256: str
@@ -213,11 +323,33 @@ class GenerationMetadata(BaseModel):
     config: dict[str, Any]
 
 
+class GenerationMetadataV11(BaseModel):
+    version: Literal["1.1"]
+    engine_version: str
+    seed: int
+    source_sha256: str
+    width: int
+    height: int
+    class_map: dict[str, str]
+    bbox_format: str
+    allow_overlap: bool
+    requested_count: int
+    generated_count: int
+    changed_pixel_count: int
+    class_pixel_counts: dict[str, int]
+    instances: list[InstanceInfo]
+    config: dict[str, Any]
+    area: dict[str, Any] = Field(description="생성·제외 영역, 경계 여유, 허용 영역 픽셀 수와 마스크 해시(재현용)")
+    reference_line: dict[str, Any] | None
+    surface_analysis: dict[str, Any] | None = Field(description="스크래치 표면 맞춤을 켰을 때의 원본 국소 분석 요약")
+    algorithm_versions: dict[str, str | None]
+
+
 class PreviewResponse(BaseModel):
     image_png_base64: str
     class_mask_png_base64: str
     binary_mask_png_base64: str
-    metadata: GenerationMetadata
+    metadata: Annotated[Union[GenerationMetadata, GenerationMetadataV11], Field(discriminator="version")]
     processing_ms: float = Field(description="서버 처리 시간(ms). 재현성 대상이 아님")
 
 

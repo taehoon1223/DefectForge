@@ -19,14 +19,19 @@ beforeEach(() => useWorkspaceStore.setState(initial, true))
 describe('DefectControls', () => {
   it('toggles a defect type and hides its parameters', async () => {
     render(<DefectControls />)
+    expect(screen.getByTestId('pinhole-polarity-bright')).toBeInTheDocument()
+    expect(screen.queryByTestId('pinhole-radius-min')).not.toBeInTheDocument() // folded by default
+    await userEvent.click(screen.getByTestId('details-pinhole'))
     expect(screen.getByTestId('pinhole-radius-min')).toBeInTheDocument()
     await userEvent.click(screen.getByTestId('enable-pinhole'))
     expect(useWorkspaceStore.getState().form.defects.pinhole.enabled).toBe(false)
     expect(screen.queryByTestId('pinhole-radius-min')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('pinhole-polarity-bright')).not.toBeInTheDocument()
   })
 
   it('shows a Korean error under an out-of-range field and writes the value to the store', async () => {
     render(<DefectControls />)
+    await userEvent.click(screen.getByTestId('details-scratch'))
     const min = screen.getByTestId('scratch-length-min')
     await userEvent.clear(min)
     await userEvent.type(min, '600')
@@ -36,12 +41,32 @@ describe('DefectControls', () => {
 
   it('keeps partial decimal input while typing', async () => {
     render(<DefectControls />)
+    await userEvent.click(screen.getByTestId('details-scratch'))
     const contrast = screen.getByTestId('scratch-contrast-max')
     await userEvent.clear(contrast)
     await userEvent.type(contrast, '0.')
     expect(contrast).toHaveValue('0.')
     await userEvent.type(contrast, '7')
     expect(useWorkspaceStore.getState().form.defects.scratch.params.contrast[1]).toBe(0.7)
+  })
+
+  it('opens folded details by itself when a value inside is invalid', () => {
+    useWorkspaceStore.getState().setDefectParam('pinhole', 'radius_px', [50, 40])
+    render(<DefectControls />)
+    expect(screen.getByTestId('pinhole-radius-min')).toBeInTheDocument()
+    expect(screen.getByText(/1~30 범위여야 합니다/)).toBeInTheDocument()
+  })
+
+  it('scratch direction "line" asks for a reference line and switches parallel/perpendicular', async () => {
+    render(<DefectControls />)
+    expect(screen.queryByTestId('line-start')).not.toBeInTheDocument()
+    await userEvent.click(screen.getByTestId('orient-line'))
+    expect(useWorkspaceStore.getState().form.defects.scratch.params.orientation.mode).toBe('parallel')
+    expect(screen.getByTestId('line-start')).toBeInTheDocument()
+    await userEvent.click(screen.getByTestId('orient-perpendicular'))
+    expect(useWorkspaceStore.getState().form.defects.scratch.params.orientation.mode).toBe('perpendicular')
+    await userEvent.click(screen.getByTestId('surface-match'))
+    expect(useWorkspaceStore.getState().form.defects.scratch.params.shading.mode).toBe('local')
   })
 
   it('polarity buttons update the store', async () => {

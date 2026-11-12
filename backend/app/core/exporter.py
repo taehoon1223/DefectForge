@@ -7,12 +7,10 @@ import zipfile
 from datetime import datetime, timezone
 from typing import IO, Any
 
-from app.config import APP_VERSION
-from app.core.generation import generate_sample
 from app.core.image_io import SourceImage, encode_png
-from app.core.roi import build_roi_mask
+from app.core.pipeline import make_sampler
 from app.defects import CLASS_MAP
-from app.schemas.generation import GenerationConfig
+from app.schemas.generation import AnyGenerationConfig
 
 SEED_RULE = "seed_i = base_seed + i  (i = 0 .. sample_count-1, 파일 번호 = i + 1)"
 
@@ -58,6 +56,17 @@ manifest.json                 전체 파일 목록, 클래스 정의, seed 규�
 - pinhole은 핀홀과 유사한 외관(pinhole-like appearance)을 흉내 낸 것으로, 관통 구멍의 물리 광학을 시뮬레이션하지 않습니다.
 """
 
+_V11_README = """
+[생성 영역 (config 1.1)]
+생성 영역: {scope} · 제외 영역 {excluded}개 · 경계 여유 {margin}px · 허용 픽셀 {allowed}
+- 결함은 '허용 영역 = 생성 영역(없으면 이미지 전체) − 제외 영역'에서 경계 여유를 뺀 곳에만 생깁니다.
+  이 영역 밖의 픽셀은 원본과 완전히 같습니다.
+- 영역 다각형과 마스크 해시(allowed_mask_sha256 등), 기준선, 표면 분석 요약은
+  manifest.json과 metadata/*.json의 area / reference_line / surface_analysis 필드에 기록됩니다.
+- 스크래치 '표면 밝기에 맞추기'는 원본 이미지의 국소 평균·표준편차를 이용한 외관 규칙이며,
+  실제 조명·3D 형상을 복원한 것이 아닙니다.
+"""
+
 
 def sample_paths(index: int) -> dict[str, str]:
     stem = f"{index:04d}"
@@ -75,25 +84,26 @@ def _json_bytes(data: Any) -> bytes:
 
 def write_dataset_zip(
     source: SourceImage,
-    config: GenerationConfig,
+    config: AnyGenerationConfig,
     sample_count: int,
     out: IO[bytes],
     created_at: datetime | None = None,
 ) -> dict[str, Any]:
     """Generate ``sample_count`` samples (seed = config.seed + i) into ``out``. Returns the manifest.
 
-    Samples are generated, encoded and written one at a time so memory stays bounded.
+    Validation and preparation (ROI, areas, surface analysis) run once and are shared by all
+    samples. Samples are generated, encoded and written one at a time so memory stays bounded.
     """
     created = (created_at or datetime.now(timezone.utc)).replace(microsecond=0)
     created_iso = created.isoformat().replace("+00:00", "Z")
-    roi = build_roi_mask(config.roi, source.width, source.height)
+    sampler = make_sampler(source, config)
     files: list[dict[str, Any]] = []
 
     with zipfile.ZipFile(out, "w") as zf:
         for i in range(sample_count):
             seed = config.seed + i
             paths = sample_paths(i + 1)
-            result = generate_sample(source, config, seed, roi)
+            result = sampler.generate(seed)
             # PNG is already deflate-compressed; store it as-is.
             zf.writestr(paths["image"], encode_png(result.image), compress_type=zipfile.ZIP_STORED)
             zf.writestr(paths["class_mask"], encode_png(result.class_mask), compress_type=zipfile.ZIP_STORED)
@@ -105,7 +115,7 @@ def write_dataset_zip(
         manifest = {
             "dataset": "DefectForge synthetic defect dataset",
             "format_version": "1.0",
-            "generator": {"name": "DefectForge", "engine_version": APP_VERSION},
+            "generator": {"name": "DefectForge", "engine_version": sampler.engine_version},
             "created_at": created_iso,
             "sample_count": sample_count,
             "class_map": dict(CLASS_MAP),
@@ -119,6 +129,7 @@ def write_dataset_zip(
             "source": {"sha256": source.sha256, "width": source.width, "height": source.height, "format": source.format},
             "config": config.model_dump(mode="json"),
             "files": files,
+            **sampler.manifest_extra,
         }
         zf.writestr("manifest.json", _json_bytes(manifest), compress_type=zipfile.ZIP_DEFLATED)
         readme = _README_TEMPLATE.format(
@@ -130,5 +141,14 @@ def write_dataset_zip(
             seed=config.seed,
             seed_rule=SEED_RULE,
         )
+        if "area" in sampler.manifest_extra:
+            area = sampler.manifest_extra["area"]
+            includes = sum(r["kind"] == "include" for r in area["regions"])
+            readme += _V11_README.format(
+                scope="이미지 전체" if area["full_image"] else f"{includes}개",
+                excluded=sum(r["kind"] == "exclude" for r in area["regions"]),
+                margin=area["edge_margin_px"],
+                allowed=area["allowed_pixel_count"],
+            )
         zf.writestr("README.txt", readme.encode("utf-8"), compress_type=zipfile.ZIP_DEFLATED)
     return manifest

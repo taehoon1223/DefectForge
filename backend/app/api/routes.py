@@ -18,10 +18,18 @@ from starlette.background import BackgroundTask
 from app.api.errors import config_validation_error
 from app.config import APP_VERSION, Settings
 from app.core.exporter import write_dataset_zip
-from app.core.generation import generate_sample
 from app.core.image_io import SourceImage, b64, decode_image, encode_png, read_upload_limited
+from app.core.pipeline import make_sampler
 from app.error_codes import DefectForgeError, ErrorCode
-from app.schemas.generation import ErrorResponse, GenerationConfig, HealthResponse, PreviewResponse
+from app.schemas.generation import (
+    V11_CONFIG_VERSION,
+    AnyGenerationConfig,
+    ErrorResponse,
+    GenerationConfig,
+    GenerationConfigV11,
+    HealthResponse,
+    PreviewResponse,
+)
 
 router = APIRouter(prefix="/api/v1")
 
@@ -31,13 +39,16 @@ _STREAM_CHUNK = 1024 * 1024
 ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
     400: {"model": ErrorResponse, "description": "필수 입력 누락 / config JSON 문법 오류"},
     413: {"model": ErrorResponse, "description": "업로드 크기 초과"},
-    422: {"model": ErrorResponse, "description": "이미지·ROI·파라미터 오류, 결함 배치 실패"},
+    422: {"model": ErrorResponse, "description": "이미지·ROI·영역·기준선·파라미터 오류, 결함 배치 실패"},
     429: {"model": ErrorResponse, "description": "동시 생성 작업 한도 초과"},
     500: {"model": ErrorResponse, "description": "서버 내부 오류"},
 }
 
 FileField = Annotated[UploadFile, File(description="정상 이미지 (PNG/JPEG/WebP, 최대 10 MiB, 각 변 32~2048px)")]
-ConfigField = Annotated[str, Form(description="GenerationConfig JSON 문자열")]
+ConfigField = Annotated[
+    str,
+    Form(description='설정 JSON 문자열. version "1.0"(또는 생략) = ROI 하나 + 결함, "1.1" = 1.0 + 생성/제외 영역·경계 여유·스크래치 방향/표면 맞춤'),
+]
 
 
 class JobLimiter:
@@ -57,7 +68,8 @@ class JobLimiter:
             self._semaphore.release()
 
 
-def parse_config(raw: str) -> GenerationConfig:
+def parse_config(raw: str) -> AnyGenerationConfig:
+    """Dispatch on ``version``: "1.1" -> the 1.1 schema, anything else -> the unchanged 1.0 schema."""
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
@@ -66,13 +78,14 @@ def parse_config(raw: str) -> GenerationConfig:
         ) from exc
     if not isinstance(data, dict):
         raise DefectForgeError(ErrorCode.INVALID_CONFIG, "config는 JSON 객체여야 합니다.")
+    schema = GenerationConfigV11 if data.get("version") == V11_CONFIG_VERSION else GenerationConfig
     try:
-        return GenerationConfig.model_validate(data)
+        return schema.model_validate(data)
     except ValidationError as exc:
         raise config_validation_error(exc) from exc
 
 
-def _load_inputs(file: UploadFile, config: str, settings: Settings) -> tuple[SourceImage, GenerationConfig]:
+def _load_inputs(file: UploadFile, config: str, settings: Settings) -> tuple[SourceImage, AnyGenerationConfig]:
     data = read_upload_limited(file.file, settings.max_upload_bytes)
     cfg = parse_config(config)
     source = decode_image(data, settings.min_image_dim, settings.max_image_dim)
@@ -91,7 +104,7 @@ def preview(request: Request, file: FileField, config: ConfigField) -> PreviewRe
     source, cfg = _load_inputs(file, config, settings)
     with request.app.state.jobs.slot():
         started = time.perf_counter()
-        result = generate_sample(source, cfg, cfg.seed)
+        result = make_sampler(source, cfg).generate(cfg.seed)
         response = PreviewResponse(
             image_png_base64=b64(encode_png(result.image)),
             class_mask_png_base64=b64(encode_png(result.class_mask)),

@@ -1,3 +1,4 @@
+import { AreaPanel } from './components/AreaEditor'
 import { DefectControls, GenerationSettings } from './components/DefectControls'
 import { ExportPanel } from './components/ExportPanel'
 import { GenerationSummary } from './components/GenerationSummary'
@@ -5,7 +6,6 @@ import { Header } from './components/Header'
 import { ImageUploader } from './components/ImageUploader'
 import { MaskLegend } from './components/MaskLegend'
 import { PreviewCanvas } from './components/PreviewCanvas'
-import { RoiPanel } from './components/RoiEditor'
 import { StatusBar } from './components/StatusBar'
 import { Toast } from './components/Toast'
 
@@ -16,7 +16,7 @@ export default function App() {
       <main className="grid flex-1 grid-cols-1 lg:min-h-0 lg:grid-cols-[clamp(280px,24vw,340px)_minmax(0,1fr)_clamp(260px,22vw,310px)]">
         <aside className="border-line bg-panel lg:min-h-0 lg:overflow-y-auto lg:border-r" aria-label="입력 설정" data-testid="left-panel">
           <ImageUploader />
-          <RoiPanel />
+          <AreaPanel />
           <DefectControls />
           <GenerationSettings />
         </aside>

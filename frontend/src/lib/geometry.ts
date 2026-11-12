@@ -32,6 +32,15 @@ export function toPixel(p: Vec, size: Size): Point {
   return [x, y]
 }
 
+/** Canvas position of a pixel's centre (pixel i spans [i, i+1)). */
+export function pixelCenter([x, y]: Point): [number, number] {
+  return [x + 0.5, y + 0.5]
+}
+
+export function flatCenters(points: Point[]): number[] {
+  return points.flatMap(pixelCenter)
+}
+
 export function isInsideImage(p: Vec, size: Size): boolean {
   return p.x >= 0 && p.y >= 0 && p.x < size.width && p.y < size.height
 }
@@ -114,20 +123,20 @@ export function hasSelfIntersection(points: Point[]): boolean {
 }
 
 /** Korean error message, or null when the ROI is valid. */
-export function validateRoi(points: Point[], size: Size, maxPoints: number): string | null {
-  if (points.length === 0) return 'ROI가 비어 있습니다.'
-  if (points.length < 3) return 'ROI 다각형은 최소 3개의 점이 필요합니다.'
-  if (points.length > maxPoints) return `ROI 점은 최대 ${maxPoints}개까지 지정할 수 있습니다.`
+export function validateRoi(points: Point[], size: Size, maxPoints: number, label = 'ROI'): string | null {
+  if (points.length === 0) return `${label}가 비어 있습니다.`
+  if (points.length < 3) return `${label} 다각형은 최소 3개의 점이 필요합니다.`
+  if (points.length > maxPoints) return `${label} 점은 최대 ${maxPoints}개까지 지정할 수 있습니다.`
   if (points.some(([x, y]) => !Number.isInteger(x) || !Number.isInteger(y) || x < 0 || y < 0 || x >= size.width || y >= size.height)) {
-    return 'ROI 점이 이미지 범위를 벗어났습니다.'
+    return `${label} 점이 이미지 범위를 벗어났습니다.`
   }
   for (let i = 0; i < points.length; i++) {
     const [ax, ay] = points[i]
     const [bx, by] = points[(i + 1) % points.length]
-    if (ax === bx && ay === by) return 'ROI에 연속으로 중복된 점이 있습니다.'
+    if (ax === bx && ay === by) return `${label}에 연속으로 중복된 점이 있습니다.`
   }
-  if (points.slice(2).every((p) => orient(points[0], points[1], p) === 0)) return 'ROI 다각형의 면적이 0입니다.'
-  if (hasSelfIntersection(points)) return 'ROI 다각형의 변이 서로 교차합니다. 자기 교차가 없도록 꼭짓점을 옮기세요.'
-  if (polygonArea(points) === 0) return 'ROI 다각형의 면적이 0입니다.'
+  if (points.slice(2).every((p) => orient(points[0], points[1], p) === 0)) return `${label} 다각형의 면적이 0입니다.`
+  if (hasSelfIntersection(points)) return `${label} 다각형의 변이 서로 교차합니다. 자기 교차가 없도록 꼭짓점을 옮기세요.`
+  if (polygonArea(points) === 0) return `${label} 다각형의 면적이 0입니다.`
   return null
 }

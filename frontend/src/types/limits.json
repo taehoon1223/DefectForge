@@ -9,6 +9,24 @@
     "acceptedExtensions": [".png", ".jpg", ".jpeg", ".webp"]
   },
   "roiMaxPoints": 256,
+  "area": {
+    "regionMaxCount": 32,
+    "referenceLineMinLengthPx": 4,
+    "limits": { "edge_margin_px": [0, 50] },
+    "defaults": { "edge_margin_px": 0 }
+  },
+  "scratchOptions": {
+    "limits": {
+      "angle_deg": [0, 180],
+      "jitter_deg": [0, 45],
+      "window_sigma_px": [2, 32],
+      "min_texture_ratio": [0, 4]
+    },
+    "defaults": {
+      "orientation": { "mode": "random", "angle_deg": 0, "jitter_deg": 5 },
+      "shading": { "mode": "fixed", "window_sigma_px": 6, "min_texture_ratio": 1.0 }
+    }
+  },
   "defects": {
     "scratch": {
       "limits": {

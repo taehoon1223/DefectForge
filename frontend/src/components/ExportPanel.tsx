@@ -31,22 +31,16 @@ export function ExportPanel() {
         <NumberField label="생성 장수" value={count} step={1} invalid={!!error} onChange={setCount} className="w-12 shrink-0 text-center" testId="export-count" />
       </div>
       <FieldError message={error} />
-      <dl className="num mt-2.5 grid gap-1 text-[11px] text-muted">
-        <div className="flex justify-between">
-          <dt>Seed 규약</dt>
-          <dd className="text-ink">seed + i</dd>
-        </div>
-        {!error && Number.isFinite(seed) && (
-          <div className="flex justify-between">
-            <dt>샘플 Seed 범위</dt>
-            <dd className="text-ink" data-testid="export-seed-range">
-              {seed} … {seed + count - 1}
-            </dd>
-          </div>
-        )}
-      </dl>
-      <p className="mt-2 text-[11px] leading-relaxed text-faint">
-        images/ · masks/ · binary_masks/ · metadata/ 폴더에 같은 번호로 1:1 매칭되는 파일과 manifest.json, README.txt가 포함됩니다. 하단의 ‘데이터셋 다운로드’로 내려받습니다.
+      {!error && Number.isFinite(seed) && (
+        <p className="num mt-2 flex justify-between text-[11px] text-muted">
+          <span>Seed (seed + i)</span>
+          <span className="text-ink" data-testid="export-seed-range">
+            {seed} … {seed + count - 1}
+          </span>
+        </p>
+      )}
+      <p className="mt-1.5 text-[11px] leading-relaxed text-faint" title="images/ · masks/ · binary_masks/ · metadata/ 폴더에 같은 번호로 1:1 매칭되는 파일과 manifest.json, README.txt">
+        이미지·마스크·메타데이터가 같은 번호로 묶인 ZIP을 하단 버튼으로 받습니다.
       </p>
     </Section>
   )

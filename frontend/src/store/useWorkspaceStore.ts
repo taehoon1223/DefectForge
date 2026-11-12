@@ -6,16 +6,26 @@ import {
   defaultFormState,
   fingerprint,
   LIMITS,
+  lineAngleDeg,
+  needsReferenceLine,
+  REGION_KIND_LABELS,
+  resultDeterminingConfig,
   validateForm,
   type DefectType,
   type FormState,
+  type GenerationConfig,
   type ParamsByType,
   type Point,
   type PreviewResponse,
+  type ReferenceLine,
+  type Region,
+  type RegionKind,
+  type ScratchParams,
   type ViewMode,
 } from '../types/generation'
 
-export type Tool = 'select' | 'draw'
+/** select = pan / edit, draw = add polygon points, line = place the two reference-line points. */
+export type Tool = 'select' | 'draw' | 'line'
 export type ErrorInfo = { code: string; message: string; details?: Record<string, unknown> }
 export type ToastKind = 'success' | 'error' | 'info'
 export type ToastItem = { id: number; kind: ToastKind; message: string }
@@ -27,9 +37,14 @@ export type WorkspaceState = {
   sourceImageSize: ImageSize | null
   /** Incremented on every image replacement; responses for older versions are discarded. */
   sourceVersion: number
-  roi: Point[] | null
-  roiDraft: Point[] | null
   tool: Tool
+  regions: Region[]
+  selectedRegionId: string | null
+  /** Polygon being drawn and the kind of region it will become. */
+  draft: Point[] | null
+  drawKind: RegionKind
+  referenceLine: ReferenceLine | null
+  lineDraft: Point | null
   form: FormState
   exportCount: number
   currentResult: PreviewResponse | null
@@ -43,14 +58,24 @@ export type WorkspaceState = {
 
   setSource: (file: File, url: string, size: ImageSize) => void
   setTool: (tool: Tool) => void
-  setRoi: (roi: Point[] | null) => void
-  setRoiDraft: (draft: Point[] | null) => void
+  setDrawKind: (kind: RegionKind) => void
+  setDraft: (draft: Point[] | null) => void
+  addRegion: (kind: RegionKind, polygon: Point[]) => string
+  renameRegion: (id: string, name: string) => void
+  updateRegionPolygon: (id: string, polygon: Point[]) => void
+  deleteRegion: (id: string) => void
+  selectRegion: (id: string | null) => void
+  setReferenceLine: (line: ReferenceLine | null) => void
+  setLineDraft: (point: Point | null) => void
   setDefectEnabled: (type: DefectType, enabled: boolean) => void
   setDefectCount: (type: DefectType, count: number) => void
   setDefectParam: <K extends DefectType>(type: K, key: keyof ParamsByType[K], value: ParamsByType[K][keyof ParamsByType[K]]) => void
+  setScratchOrientation: (patch: Partial<ScratchParams['orientation']>) => void
+  setScratchShading: (patch: Partial<ScratchParams['shading']>) => void
   setSeed: (seed: number) => void
   randomizeSeed: () => void
   setAllowOverlap: (allow: boolean) => void
+  setEdgeMargin: (px: number) => void
   resetDefaults: () => void
   setViewMode: (mode: ViewMode) => void
   setOverlayOpacity: (opacity: number) => void
@@ -62,26 +87,53 @@ export type WorkspaceState = {
   exportDataset: () => Promise<void>
 }
 
+type ConfigState = Pick<WorkspaceState, 'form' | 'regions' | 'referenceLine'>
+
 let previewController: AbortController | null = null
 let exportController: AbortController | null = null
 let toastSeq = 0
+let regionSeq = 0
 
-/** Fingerprint of everything that determines a preview: image identity + request config. */
-export function currentConfigHash(state: Pick<WorkspaceState, 'form' | 'roi' | 'sourceVersion'>): string {
-  return fingerprint({ source: state.sourceVersion, config: buildGenerationConfig(state.form, state.roi) })
+export function buildActiveConfig(state: ConfigState): GenerationConfig {
+  return buildGenerationConfig(state.form, state.regions, state.referenceLine)
+}
+
+/** Fingerprint of everything that determines a preview: image identity + request config (minus display names). */
+export function currentConfigHash(state: ConfigState & Pick<WorkspaceState, 'sourceVersion'>): string {
+  return fingerprint({ source: state.sourceVersion, config: resultDeterminingConfig(buildActiveConfig(state)) })
 }
 
 /** Reason generation/export is blocked, or null when ready. */
-export function blockingReason(state: Pick<WorkspaceState, 'sourceFile' | 'sourceImageSize' | 'form' | 'roi' | 'roiDraft'>): string | null {
-  if (!state.sourceFile || !state.sourceImageSize) return '이미지를 먼저 업로드하세요.'
-  if (state.roiDraft) return 'ROI 그리기를 완료(Enter / 첫 점 클릭)하거나 취소(Esc)하세요.'
-  if (state.roi) {
-    const roiError = validateRoi(state.roi, state.sourceImageSize, LIMITS.roiMaxPoints)
-    if (roiError) return roiError
+export function blockingReason(
+  state: ConfigState & Pick<WorkspaceState, 'sourceFile' | 'sourceImageSize' | 'draft' | 'drawKind' | 'lineDraft'>,
+): string | null {
+  const size = state.sourceImageSize
+  if (!state.sourceFile || !size) return '이미지를 먼저 업로드하세요.'
+  if (state.draft) return `${REGION_KIND_LABELS[state.drawKind]} 그리기를 완료(Enter / 첫 점 클릭)하거나 취소(Esc)하세요.`
+  if (state.lineDraft) return '기준선의 두 번째 점을 찍거나 Esc로 취소하세요.'
+  for (const region of state.regions) {
+    if (!region.name.trim()) return '영역 이름을 입력하세요.'
+    const problem = validateRoi(region.polygon, size, LIMITS.roiMaxPoints, `영역 '${region.name}'`)
+    if (problem) return problem
   }
-  const errors = validateForm(state.form)
-  const first = Object.values(errors)[0]
-  return first ? `설정 오류: ${first}` : null
+  const first = Object.values(validateForm(state.form))[0]
+  if (first) return `설정 오류: ${first}`
+  if (needsReferenceLine(state.form) && !state.referenceLine) {
+    return '스크래치 방향 ‘기준선’에는 기준선이 필요합니다. ‘기준선 그리기’로 두 점을 찍거나 다른 방향을 고르세요.'
+  }
+  return null
+}
+
+export function nextRegionName(kind: RegionKind, regions: Region[]): string {
+  const taken = new Set(regions.map((r) => r.name))
+  const base = kind === 'include' ? '영역' : '제외'
+  for (let i = 1; ; i++) {
+    if (!taken.has(`${base} ${i}`)) return `${base} ${i}`
+  }
+}
+
+export function lineAngle(line: ReferenceLine | null): number | null {
+  return line ? lineAngleDeg(line.start, line.end) : null
 }
 
 function toErrorInfo(error: unknown): ErrorInfo {
@@ -93,14 +145,23 @@ function updateDefect<K extends DefectType>(form: FormState, type: K, patch: Par
   return { ...form, defects: { ...form.defects, [type]: { ...form.defects[type], ...patch } } }
 }
 
+function updateScratchParams(form: FormState, patch: Partial<ScratchParams>): FormState {
+  const scratch = form.defects.scratch
+  return updateDefect(form, 'scratch', { params: { ...scratch.params, ...patch } })
+}
+
 export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
   sourceFile: null,
   sourceUrl: null,
   sourceImageSize: null,
   sourceVersion: 0,
-  roi: null,
-  roiDraft: null,
   tool: 'select',
+  regions: [],
+  selectedRegionId: null,
+  draft: null,
+  drawKind: 'include',
+  referenceLine: null,
+  lineDraft: null,
   form: defaultFormState(),
   exportCount: LIMITS.exportCount.default,
   currentResult: null,
@@ -123,9 +184,12 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
       sourceUrl: url,
       sourceImageSize: size,
       sourceVersion: s.sourceVersion + 1,
-      roi: null,
-      roiDraft: null,
       tool: 'select',
+      regions: [],
+      selectedRegionId: null,
+      draft: null,
+      referenceLine: null,
+      lineDraft: null,
       currentResult: null,
       currentResultConfigHash: null,
       viewMode: 'original',
@@ -135,8 +199,20 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
     }))
   },
   setTool: (tool) => set({ tool }),
-  setRoi: (roi) => set({ roi }),
-  setRoiDraft: (roiDraft) => set({ roiDraft }),
+  setDrawKind: (drawKind) => set({ drawKind }),
+  setDraft: (draft) => set({ draft }),
+  addRegion: (kind, polygon) => {
+    const id = `region-${++regionSeq}`
+    set((s) => ({ regions: [...s.regions, { id, name: nextRegionName(kind, s.regions), kind, polygon }], selectedRegionId: id }))
+    return id
+  },
+  renameRegion: (id, name) => set((s) => ({ regions: s.regions.map((r) => (r.id === id ? { ...r, name } : r)) })),
+  updateRegionPolygon: (id, polygon) => set((s) => ({ regions: s.regions.map((r) => (r.id === id ? { ...r, polygon } : r)) })),
+  deleteRegion: (id) =>
+    set((s) => ({ regions: s.regions.filter((r) => r.id !== id), selectedRegionId: s.selectedRegionId === id ? null : s.selectedRegionId })),
+  selectRegion: (selectedRegionId) => set({ selectedRegionId }),
+  setReferenceLine: (referenceLine) => set({ referenceLine }),
+  setLineDraft: (lineDraft) => set({ lineDraft }),
   setDefectEnabled: (type, enabled) => set((s) => ({ form: updateDefect(s.form, type, { enabled }) })),
   setDefectCount: (type, count) => set((s) => ({ form: updateDefect(s.form, type, { count }) })),
   setDefectParam: (type, key, value) =>
@@ -145,9 +221,13 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
       const next = { ...entry, params: { ...entry.params, [key]: value } } as typeof entry
       return { form: { ...s.form, defects: { ...s.form.defects, [type]: next } } }
     }),
+  setScratchOrientation: (patch) =>
+    set((s) => ({ form: updateScratchParams(s.form, { orientation: { ...s.form.defects.scratch.params.orientation, ...patch } }) })),
+  setScratchShading: (patch) => set((s) => ({ form: updateScratchParams(s.form, { shading: { ...s.form.defects.scratch.params.shading, ...patch } }) })),
   setSeed: (seed) => set((s) => ({ form: { ...s.form, seed } })),
   randomizeSeed: () => set((s) => ({ form: { ...s.form, seed: Math.floor(Math.random() * 1_000_000) } })),
   setAllowOverlap: (allowOverlap) => set((s) => ({ form: { ...s.form, allowOverlap } })),
+  setEdgeMargin: (edgeMarginPx) => set((s) => ({ form: { ...s.form, edgeMarginPx } })),
   resetDefaults: () => set((s) => ({ form: { ...defaultFormState(), seed: s.form.seed } })),
   setViewMode: (viewMode) => set({ viewMode }),
   setOverlayOpacity: (overlayOpacity) => set({ overlayOpacity: Math.min(1, Math.max(0, overlayOpacity)) }),
@@ -168,7 +248,7 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
       return
     }
     const version = state.sourceVersion
-    const config = buildGenerationConfig(state.form, state.roi)
+    const config = buildActiveConfig(state)
     const hash = currentConfigHash(state)
     previewController?.abort()
     const controller = new AbortController()
@@ -206,7 +286,7 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
       return
     }
     const version = state.sourceVersion
-    const config = buildGenerationConfig(state.form, state.roi)
+    const config = buildActiveConfig(state)
     exportController?.abort()
     const controller = new AbortController()
     exportController = controller

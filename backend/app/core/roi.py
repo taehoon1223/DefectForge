@@ -73,33 +73,53 @@ def find_self_intersection(points: Sequence[Point]) -> tuple[int, int] | None:
     return None
 
 
-def validate_roi(points: Sequence[Sequence[int]] | None, width: int, height: int) -> list[Point] | None:
+def validate_roi(
+    points: Sequence[Sequence[int]] | None,
+    width: int,
+    height: int,
+    *,
+    label: str = "ROI",
+    code: ErrorCode = ErrorCode.INVALID_ROI,
+) -> list[Point] | None:
+    """Validate a simple polygon. ``label``/``code`` let config 1.1 regions reuse exactly the same rules."""
     if points is None:
         return None
+
+    def fail(message: str, **details: object) -> DefectForgeError:
+        return DefectForgeError(code, message, dict(details))
+
     pts: list[Point] = [(int(p[0]), int(p[1])) for p in points]
     if len(pts) == 0:
-        raise _roi_error("ROI가 비어 있습니다. 다각형을 3개 이상의 점으로 그리거나 ROI를 삭제해 전체 이미지를 사용하세요.")
+        hint = "ROI를 삭제해 전체 이미지를 사용하세요." if code is ErrorCode.INVALID_ROI else "영역을 삭제하세요."
+        raise fail(f"{label}가 비어 있습니다. 다각형을 3개 이상의 점으로 그리거나 {hint}")
     if len(pts) < 3:
-        raise _roi_error("ROI 다각형은 최소 3개의 점이 필요합니다.", point_count=len(pts))
+        raise fail(f"{label} 다각형은 최소 3개의 점이 필요합니다.", point_count=len(pts))
     outside = [i for i, (x, y) in enumerate(pts) if not (0 <= x < width and 0 <= y < height)]
     if outside:
-        raise _roi_error(
-            f"ROI 점이 이미지 범위(0~{width - 1}, 0~{height - 1})를 벗어났습니다.",
+        raise fail(
+            f"{label} 점이 이미지 범위(0~{width - 1}, 0~{height - 1})를 벗어났습니다.",
             point_indices=outside,
         )
     for i in range(len(pts)):
         if pts[i] == pts[(i + 1) % len(pts)]:
-            raise _roi_error("ROI에 연속으로 중복된 점이 있습니다.", point_index=i)
-    zero_area_message = "ROI 다각형의 면적이 0입니다. 한 직선 위에 있지 않은 점들로 그려주세요."
+            raise fail(f"{label}에 연속으로 중복된 점이 있습니다.", point_index=i)
+    zero_area_message = f"{label} 다각형의 면적이 0입니다. 한 직선 위에 있지 않은 점들로 그려주세요."
     if all(_orient(pts[0], pts[1], p) == 0 for p in pts[2:]):
-        raise _roi_error(zero_area_message)
+        raise fail(zero_area_message)
     # Self-intersection before area: a symmetric bow-tie has zero signed area but "crossing" is the real problem.
     crossing = find_self_intersection(pts)
     if crossing is not None:
-        raise _roi_error("ROI 다각형의 변이 서로 교차합니다. 자기 교차가 없는 단순 다각형으로 그려주세요.", edges=list(crossing))
+        raise fail(f"{label} 다각형의 변이 서로 교차합니다. 자기 교차가 없는 단순 다각형으로 그려주세요.", edges=list(crossing))
     if abs(polygon_area(pts)) <= 0:
-        raise _roi_error(zero_area_message)
+        raise fail(zero_area_message)
     return pts
+
+
+def rasterize_polygon(points: Sequence[Point], width: int, height: int) -> np.ndarray:
+    """Boundary-inclusive rasterisation shared by the ROI and config 1.1 regions (cv2.fillPoly, LINE_8)."""
+    canvas = np.zeros((height, width), dtype=np.uint8)
+    cv2.fillPoly(canvas, [np.asarray(points, dtype=np.int32).reshape(-1, 1, 2)], 1, lineType=cv2.LINE_8)
+    return canvas.astype(bool)
 
 
 @dataclass(frozen=True)
@@ -119,15 +139,20 @@ class RoiMask:
         jx, jy = rng.random(2)
         return (x + float(jx), y + float(jy))
 
+    @classmethod
+    def from_mask(cls, mask: np.ndarray, points: list[Point] | None) -> RoiMask:
+        """Placement area from any boolean mask (e.g. the config 1.1 allowed area). Must be non-empty."""
+        mask = np.array(mask, dtype=bool, copy=True)
+        flat = np.flatnonzero(mask)
+        if flat.size == 0:
+            raise ValueError("placement mask is empty")
+        mask.setflags(write=False)
+        return cls(mask=mask, flat_indices=flat, points=points)
+
 
 def build_roi_mask(points: Sequence[Sequence[int]] | None, width: int, height: int) -> RoiMask:
     pts = validate_roi(points, width, height)
-    if pts is None:
-        mask = np.ones((height, width), dtype=bool)
-    else:
-        canvas = np.zeros((height, width), dtype=np.uint8)
-        cv2.fillPoly(canvas, [np.asarray(pts, dtype=np.int32).reshape(-1, 1, 2)], 1, lineType=cv2.LINE_8)
-        mask = canvas.astype(bool)
+    mask = np.ones((height, width), dtype=bool) if pts is None else rasterize_polygon(pts, width, height)
     flat = np.flatnonzero(mask)
     if flat.size == 0:  # unreachable for a validated polygon, kept as a hard guard
         raise _roi_error("ROI 영역에 포함된 픽셀이 없습니다.")

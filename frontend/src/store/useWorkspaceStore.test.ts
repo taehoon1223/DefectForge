@@ -11,23 +11,25 @@ const fakeResult = (): PreviewResponse => ({
   binary_mask_png_base64: 'BIN',
   processing_ms: 12,
   metadata: {
-    version: '1.0',
-    engine_version: '1.0.0',
+    version: '1.1',
+    engine_version: '1.1.0',
     seed: 42,
     source_sha256: 'a'.repeat(64),
     width: 512,
     height: 448,
     class_map: { '0': 'background', '1': 'scratch', '2': 'pinhole', '3': 'contamination' },
     bbox_format: 'xyxy_inclusive',
-    roi: null,
-    roi_pixel_count: 512 * 448,
     allow_overlap: false,
     requested_count: 7,
     generated_count: 7,
     changed_pixel_count: 100,
     class_pixel_counts: { scratch: 10, pinhole: 20, contamination: 70 },
     instances: [],
-    config: { version: '1.0', seed: 42, roi: null, allow_overlap: false, defects: [] },
+    config: { version: '1.1', seed: 42, allow_overlap: false, regions: [], edge_margin_px: 0, reference_line: null, defects: [] },
+    area: { full_image: true, edge_margin_px: 0, include_pixel_count: 512 * 448, excluded_pixel_count: 0, allowed_pixel_count: 512 * 448, regions: [] },
+    reference_line: null,
+    surface_analysis: null,
+    algorithm_versions: {},
   },
 })
 
@@ -58,14 +60,14 @@ describe('workspace store', () => {
     expect(useWorkspaceStore.getState().overlayOpacity).toBe(0)
   })
 
-  it('replacing the image resets ROI, preview and error', () => {
+  it('replacing the image resets regions, preview and error', () => {
     loadImage()
+    useWorkspaceStore.getState().addRegion('include', [
+      [1, 1],
+      [9, 1],
+      [9, 9],
+    ])
     useWorkspaceStore.setState({
-      roi: [
-        [1, 1],
-        [9, 1],
-        [9, 9],
-      ],
       currentResult: fakeResult(),
       currentResultConfigHash: 'x',
       error: { code: 'X', message: 'old' },
@@ -75,39 +77,35 @@ describe('workspace store', () => {
     loadImage()
     const s = useWorkspaceStore.getState()
     expect(s.sourceVersion).toBe(version + 1)
-    expect(s).toMatchObject({ roi: null, roiDraft: null, currentResult: null, currentResultConfigHash: null, error: null, viewMode: 'original' })
+    expect(s).toMatchObject({ regions: [], draft: null, currentResult: null, currentResultConfigHash: null, error: null, viewMode: 'original' })
   })
 
-  it('blocks generation without an image, while drawing, with an invalid ROI or invalid form', () => {
+  it('blocks generation without an image, while drawing, with an invalid region or invalid form', () => {
     expect(blockingReason(useWorkspaceStore.getState())).toContain('이미지')
     loadImage()
     expect(blockingReason(useWorkspaceStore.getState())).toBeNull()
-    useWorkspaceStore.setState({ roiDraft: [[1, 1]] })
-    expect(blockingReason(useWorkspaceStore.getState())).toContain('ROI')
-    useWorkspaceStore.setState({
-      roiDraft: null,
-      roi: [
-        [10, 10],
-        [100, 100],
-        [100, 10],
-        [10, 100],
-      ],
-    })
+    useWorkspaceStore.setState({ draft: [[1, 1]] })
+    expect(blockingReason(useWorkspaceStore.getState())).toContain('그리기를 완료')
+    useWorkspaceStore.setState({ draft: null })
+    const id = useWorkspaceStore.getState().addRegion('include', [
+      [10, 10],
+      [100, 100],
+      [100, 10],
+      [10, 100],
+    ])
     expect(blockingReason(useWorkspaceStore.getState())).toContain('교차')
-    useWorkspaceStore.setState({ roi: null })
+    useWorkspaceStore.getState().deleteRegion(id)
     useWorkspaceStore.getState().setDefectCount('scratch', 0)
     expect(blockingReason(useWorkspaceStore.getState())).toContain('설정 오류')
   })
 
   it('sends multipart file + config JSON and stores the result; later edits mark it stale', async () => {
     loadImage()
-    useWorkspaceStore.setState({
-      roi: [
-        [40, 40],
-        [460, 40],
-        [460, 400],
-      ],
-    })
+    useWorkspaceStore.getState().addRegion('include', [
+      [40, 40],
+      [460, 40],
+      [460, 400],
+    ])
     const fetchMock = vi.fn(async () => json(fakeResult()))
     vi.stubGlobal('fetch', fetchMock)
     await useWorkspaceStore.getState().generatePreview()
@@ -117,11 +115,16 @@ describe('workspace store', () => {
     const body = init.body as FormData
     expect((body.get('file') as File).name).toBe('surface.png')
     const config = JSON.parse(body.get('config') as string)
-    expect(config).toMatchObject({ version: '1.0', seed: 42, allow_overlap: false })
-    expect(config.roi).toEqual([
-      [40, 40],
-      [460, 40],
-      [460, 400],
+    expect(config).toMatchObject({ version: '1.1', seed: 42, allow_overlap: false, edge_margin_px: 0, reference_line: null })
+    expect(config.regions.map((r: { kind: string; polygon: number[][] }) => [r.kind, r.polygon])).toEqual([
+      [
+        'include',
+        [
+          [40, 40],
+          [460, 40],
+          [460, 400],
+        ],
+      ],
     ])
     expect(config.defects.map((d: { type: string }) => d.type)).toEqual(['scratch', 'pinhole', 'contamination'])
 

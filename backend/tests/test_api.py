@@ -34,7 +34,7 @@ def _b64_image(value: str) -> np.ndarray:
 
 def test_health(client):
     resp = client.get("/api/v1/health")
-    assert resp.status_code == 200 and resp.json() == {"status": "ok", "version": "1.0.0"}
+    assert resp.status_code == 200 and resp.json() == {"status": "ok", "version": "1.1.0"}
 
 
 def test_openapi_docs_enabled(client):
@@ -151,7 +151,7 @@ def test_internal_errors_do_not_leak_details(client, surface_png, monkeypatch):
     def boom(*_args, **_kwargs):
         raise RuntimeError(f"secret failure in {os.getcwd()}")
 
-    monkeypatch.setattr(routes, "generate_sample", boom)
+    monkeypatch.setattr(routes, "make_sampler", boom)
     err = _assert_error(post_preview(client, surface_png, full_config()), 500, "INTERNAL_ERROR")
     assert "secret" not in json.dumps(err) and os.getcwd() not in json.dumps(err)
 

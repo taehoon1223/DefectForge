@@ -10,7 +10,7 @@ export function MaskLegend() {
   const counts = result?.metadata.class_pixel_counts
 
   return (
-    <Section title="마스크 클래스 범례" testId="mask-legend">
+    <Section title="마스크 범례" testId="mask-legend">
       <ul className="grid gap-1 text-[12px]">
         <li className="flex items-center gap-2">
           <span className="h-3 w-3 rounded-sm border border-line-strong bg-black" />
@@ -49,7 +49,7 @@ export function MaskLegend() {
           onChange={(e) => setOpacity(Number(e.target.value) / 100)}
           data-testid="opacity-slider"
         />
-        <p className="mt-1 text-[11px] text-faint">시각화 전용입니다. 마스크 PNG 값(0–3)과 결과 파일은 바뀌지 않습니다.</p>
+        <p className="mt-1 text-[11px] text-faint">표시용입니다. 결과 파일은 바뀌지 않습니다.</p>
       </div>
     </Section>
   )

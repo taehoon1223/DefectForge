@@ -1,0 +1,42 @@
+{
+  "version": "1.1",
+  "seed": 42,
+  "allow_overlap": false,
+  "regions": [
+    {
+      "id": "electrode_a",
+      "name": "전극 A",
+      "kind": "include",
+      "polygon": [
+        [117, 72],
+        [218, 86],
+        [191, 281],
+        [89, 267]
+      ]
+    }
+  ],
+  "edge_margin_px": 2,
+  "reference_line": {
+    "start": [123, 172],
+    "end": [516, 227]
+  },
+  "defects": [
+    {
+      "type": "scratch",
+      "count": 2,
+      "params": {
+        "length_px": [30, 70],
+        "width_px": [1, 2.5],
+        "contrast": [0.25, 0.5],
+        "curvature": 0.1,
+        "orientation": {
+          "mode": "parallel",
+          "jitter_deg": 5
+        },
+        "shading": {
+          "mode": "local"
+        }
+      }
+    }
+  ]
+}

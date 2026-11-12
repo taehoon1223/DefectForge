@@ -7,15 +7,35 @@ from pathlib import Path
 
 import pytest
 
+from app.api.routes import parse_config
 from app.config import MIN_IMAGE_DIM, Settings
-from app.core.generation import generate_sample
 from app.core.image_io import decode_image
-from app.schemas.generation import DEFAULTS, LIMITS, ROI_MAX_POINTS, SEED_MAX, GenerationConfig
+from app.core.pipeline import make_sampler
+from app.schemas.generation import (
+    AREA_DEFAULTS,
+    AREA_LIMITS,
+    DEFAULTS,
+    LIMITS,
+    REFERENCE_LINE_MIN_LENGTH_PX,
+    REGION_MAX_COUNT,
+    ROI_MAX_POINTS,
+    SCRATCH_OPTION_DEFAULTS,
+    SCRATCH_OPTION_LIMITS,
+    SEED_MAX,
+    GenerationConfig,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 FRONTEND_LIMITS = ROOT / "frontend" / "src" / "types" / "limits.json"
-SAMPLE_IMAGE = ROOT / "frontend" / "public" / "samples" / "brushed_metal_512x448.png"
+SAMPLES = ROOT / "frontend" / "public" / "samples"
 EXAMPLES = sorted((ROOT / "examples" / "configs").glob("*.json"))
+# config 1.0 examples run on the brushed-metal sample, the 1.1 example on the synthetic part sample
+EXAMPLE_IMAGES = {
+    "scratch": "brushed_metal_512x448.png",
+    "pinhole": "brushed_metal_512x448.png",
+    "contamination": "brushed_metal_512x448.png",
+    "regions_scratch": "part_synthetic_640x400.png",
+}
 
 
 def _frontend() -> dict:
@@ -30,6 +50,17 @@ def test_defect_limits_and_defaults_match_frontend():
         assert spec["defaults"] == DEFAULTS[kind], kind
 
 
+def test_v11_limits_and_defaults_match_frontend():
+    data = _frontend()
+    area, options = data["area"], data["scratchOptions"]
+    assert {k: tuple(v) for k, v in area["limits"].items()} == {k: tuple(v) for k, v in AREA_LIMITS.items()}
+    assert area["defaults"] == AREA_DEFAULTS
+    assert area["regionMaxCount"] == REGION_MAX_COUNT
+    assert area["referenceLineMinLengthPx"] == REFERENCE_LINE_MIN_LENGTH_PX
+    assert {k: tuple(v) for k, v in options["limits"].items()} == {k: tuple(v) for k, v in SCRATCH_OPTION_LIMITS.items()}
+    assert options["defaults"] == SCRATCH_OPTION_DEFAULTS
+
+
 def test_global_limits_match_frontend():
     data = _frontend()
     settings = Settings()
@@ -41,15 +72,16 @@ def test_global_limits_match_frontend():
     assert data["exportCount"]["max"] == settings.max_export_count and data["exportCount"]["min"] == 1
 
 
-def test_three_example_configs_exist():
-    assert [p.name for p in EXAMPLES] == ["contamination.json", "pinhole.json", "scratch.json"]
+def test_example_configs_exist():
+    assert sorted(p.stem for p in EXAMPLES) == sorted(EXAMPLE_IMAGES)
 
 
 @pytest.mark.parametrize("path", EXAMPLES, ids=lambda p: p.stem)
-def test_example_configs_generate_on_bundled_sample(path):
-    source = decode_image(SAMPLE_IMAGE.read_bytes(), 32, 2048)
-    config = GenerationConfig.model_validate_json(path.read_text(encoding="utf-8"))
-    result = generate_sample(source, config, config.seed)
+def test_example_configs_generate_on_bundled_samples(path):
+    source = decode_image((SAMPLES / EXAMPLE_IMAGES[path.stem]).read_bytes(), 32, 2048)
+    config = parse_config(path.read_text(encoding="utf-8"))
+    result = make_sampler(source, config).generate(config.seed)
     meta = result.metadata
     assert meta["generated_count"] == meta["requested_count"] > 0
-    assert {i["type"] for i in meta["instances"]} == {path.stem}
+    expected_type = "scratch" if path.stem == "regions_scratch" else path.stem
+    assert {i["type"] for i in meta["instances"]} == {expected_type}
