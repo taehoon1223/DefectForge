@@ -30,6 +30,22 @@ describe('defaults and limits', () => {
 })
 
 describe('buildGenerationConfig', () => {
+  it('leaves texture/patch off by default and appends them last when enabled', () => {
+    expect(buildGenerationConfig(defaultFormState(), [], null).defects.map((d) => d.type)).toEqual(['scratch', 'pinhole', 'contamination'])
+    const config = buildGenerationConfig(
+      form((f) => {
+        f.defects.patch.enabled = true
+        f.defects.texture.enabled = true
+        f.defects.texture.params.source = 'noise'
+      }),
+      [],
+      null,
+    )
+    expect(config.defects.map((d) => d.type)).toEqual(['scratch', 'pinhole', 'contamination', 'texture', 'patch'])
+    expect(generationConfigSchema.safeParse(config).success).toBe(true)
+    expect(config.defects[3]).toMatchObject({ type: 'texture', count: 2, params: { source: 'noise', roughness: 0.5 } })
+  })
+
   it('includes only enabled defects, in the fixed scratch -> pinhole -> contamination order', () => {
     const polygon: Point[] = [
       [1, 2],

@@ -155,6 +155,23 @@ test('T14: 확대·팬 이후 클릭한 영역 꼭짓점이 원본 픽셀 좌표
   }
 })
 
+test('텍스처 결함·패치 이식을 켜면 클래스 4·5로 함께 생성된다', async ({ page }) => {
+  await upload(page)
+  await page.getByTestId('enable-texture').check()
+  await page.getByTestId('enable-patch').check()
+  await page.getByTestId('texture-source-noise').click()
+  await page.getByTestId('patch-blend-mixed').click()
+  const response = await generate(page)
+  expect(response.status()).toBe(200)
+  const meta = (await response.json()).metadata
+  expect(meta.class_map).toMatchObject({ '4': 'texture', '5': 'patch' })
+  expect(meta.instances.filter((i: { type: string }) => i.type === 'texture')).toHaveLength(2)
+  expect(meta.instances.filter((i: { type: string }) => i.type === 'patch')).toHaveLength(2)
+  expect(meta.config.defects.map((d: { type: string }) => d.type)).toEqual(['scratch', 'pinhole', 'contamination', 'texture', 'patch'])
+  await expect(page.getByTestId('generated-count')).toHaveText('11 / 11')
+  await expect(page.getByTestId('legend-count-texture')).toHaveText(`${meta.class_pixel_counts.texture.toLocaleString('en-US')} px`)
+})
+
 test('데이터셋 ZIP N=10: 이미지·클래스 마스크·바이너리 마스크·메타데이터가 1:1로 대응', async ({ page }) => {
   await upload(page)
   await page.getByTestId('seed-input').fill('100')

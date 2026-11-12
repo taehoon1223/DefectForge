@@ -23,7 +23,7 @@ from app.schemas.generation import GenerationConfig
 
 MAX_PLACEMENT_ATTEMPTS = 100
 
-TYPE_LABELS_KO = {"scratch": "스크래치", "pinhole": "핀홀", "contamination": "오염"}
+TYPE_LABELS_KO = {"scratch": "스크래치", "pinhole": "핀홀", "contamination": "오염", "texture": "텍스처 결함", "patch": "패치 이식"}
 
 # (defect type, generator, sampled-params model, count) in application order
 PlacementJob = tuple[str, DefectGenerator, Any, int]
@@ -116,9 +116,10 @@ def common_metadata(
     config: Any,
     instances: list[dict[str, Any]],
     final: FinalOutput,
+    class_map: dict[str, str] = CLASS_MAP,
 ) -> dict[str, Any]:
     """Fields shared by both config versions; ``roi=None`` (config 1.1) leaves out the 1.0 ROI fields."""
-    class_counts = np.bincount(final.class_mask.ravel(), minlength=len(CLASS_MAP))
+    class_counts = np.bincount(final.class_mask.ravel(), minlength=len(class_map))
     roi_fields = {} if roi is None else {"roi": [list(p) for p in roi.points] if roi.points is not None else None, "roi_pixel_count": roi.pixel_count}
     return {
         "version": version,
@@ -127,14 +128,14 @@ def common_metadata(
         "source_sha256": source.sha256,
         "width": source.width,
         "height": source.height,
-        "class_map": dict(CLASS_MAP),
+        "class_map": dict(class_map),
         "bbox_format": "xyxy_inclusive",
         **roi_fields,
         "allow_overlap": config.allow_overlap,
         "requested_count": config.requested_count,
         "generated_count": len(instances),
         "changed_pixel_count": int(np.count_nonzero(final.binary_mask)),
-        "class_pixel_counts": {name: int(class_counts[int(cid)]) for cid, name in CLASS_MAP.items() if cid != "0"},
+        "class_pixel_counts": {name: int(class_counts[int(cid)]) for cid, name in class_map.items() if cid != "0"},
         "instances": instances,
         "config": config.model_dump(mode="json"),
     }

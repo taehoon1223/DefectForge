@@ -1,10 +1,12 @@
 import type { DefectType } from '../types/generation'
 
-/** Visualisation palette only — the class-mask PNG itself stays grayscale (values 0..3). */
+/** Visualisation palette only — the class-mask PNG itself stays grayscale (values 0..5). */
 export const CLASS_COLORS: Record<DefectType, [number, number, number]> = {
   scratch: [255, 59, 48],
   pinhole: [255, 214, 10],
   contamination: [0, 229, 255],
+  texture: [255, 64, 220],
+  patch: [120, 255, 80],
 }
 
 const PALETTE: Array<[number, number, number, number]> = [
@@ -12,6 +14,8 @@ const PALETTE: Array<[number, number, number, number]> = [
   [...CLASS_COLORS.scratch, 255],
   [...CLASS_COLORS.pinhole, 255],
   [...CLASS_COLORS.contamination, 255],
+  [...CLASS_COLORS.texture, 255],
+  [...CLASS_COLORS.patch, 255],
 ]
 
 export function rgbCss([r, g, b]: [number, number, number]): string {

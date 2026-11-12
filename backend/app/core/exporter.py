@@ -9,7 +9,6 @@ from typing import IO, Any
 
 from app.core.image_io import SourceImage, encode_png
 from app.core.pipeline import make_sampler
-from app.defects import CLASS_MAP
 from app.schemas.generation import AnyGenerationConfig
 
 SEED_RULE = "seed_i = base_seed + i  (i = 0 .. sample_count-1, 파일 번호 = i + 1)"
@@ -35,10 +34,7 @@ manifest.json                 전체 파일 목록, 클래스 정의, seed 규�
   images/image_0001.png <-> masks/mask_0001.png <-> binary_masks/binary_0001.png <-> metadata/image_0001.json
 
 [클래스 값 (masks/)]
-  0 = background
-  1 = scratch
-  2 = pinhole
-  3 = contamination
+{class_lines}
 클래스 마스크는 팔레트가 아닌 회색조 값 자체가 클래스 ID입니다.
 일반 이미지 뷰어에서 거의 검게 보이는 것이 정상입니다.
 
@@ -118,7 +114,7 @@ def write_dataset_zip(
             "generator": {"name": "DefectForge", "engine_version": sampler.engine_version},
             "created_at": created_iso,
             "sample_count": sample_count,
-            "class_map": dict(CLASS_MAP),
+            "class_map": dict(sampler.class_map),
             "mask_encoding": {
                 "class_mask": "single-channel 8-bit grayscale PNG; pixel value = class id",
                 "binary_mask": "single-channel 8-bit PNG; 0 = unchanged, 255 = changed",
@@ -133,6 +129,7 @@ def write_dataset_zip(
         }
         zf.writestr("manifest.json", _json_bytes(manifest), compress_type=zipfile.ZIP_DEFLATED)
         readme = _README_TEMPLATE.format(
+            class_lines="\n".join(f"  {cid} = {name}" for cid, name in sampler.class_map.items()),
             created_at=created_iso,
             count=sample_count,
             sha256=source.sha256,

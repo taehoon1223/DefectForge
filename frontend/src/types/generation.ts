@@ -3,15 +3,16 @@ import limits from './limits.json'
 
 export const LIMITS = limits
 
-export type DefectType = 'scratch' | 'pinhole' | 'contamination'
+export type DefectType = 'scratch' | 'pinhole' | 'contamination' | 'texture' | 'patch'
 export type ViewMode = 'original' | 'generated' | 'overlay' | 'classMask'
 export type Polarity = 'dark' | 'bright' | 'random'
 export type Range = [number, number]
 export type Point = [number, number]
 
-export const DEFECT_TYPES: DefectType[] = ['scratch', 'pinhole', 'contamination']
+/** Fixed application order: later classes win where defects overlap. */
+export const DEFECT_TYPES: DefectType[] = ['scratch', 'pinhole', 'contamination', 'texture', 'patch']
 
-export const CLASS_IDS: Record<DefectType, number> = { scratch: 1, pinhole: 2, contamination: 3 }
+export const CLASS_IDS: Record<DefectType, number> = { scratch: 1, pinhole: 2, contamination: 3, texture: 4, patch: 5 }
 
 /** include = 결함을 넣을 곳 (없으면 이미지 전체), exclude = 그중 빼는 곳. */
 export type RegionKind = 'include' | 'exclude'
@@ -47,10 +48,25 @@ export type ContaminationParams = {
   blur_sigma: number
   polarity: Polarity
 }
+/** DRAEM-style: Perlin-noise blob filled with a texture from the image itself or from noise. */
+export type TextureParams = {
+  radius_px: Range
+  opacity: Range
+  roughness: number
+  source: 'self' | 'noise'
+}
+/** NSA-style: a patch from elsewhere in the image, turned 90°/270° and Poisson-blended in. */
+export type PatchParams = {
+  size_px: Range
+  scale: Range
+  blend: 'source' | 'mixed'
+}
 export type ParamsByType = {
   scratch: ScratchParams
   pinhole: PinholeParams
   contamination: ContaminationParams
+  texture: TextureParams
+  patch: PatchParams
 }
 
 export type DefectSpec = { [K in DefectType]: { type: K; count: number; params: ParamsByType[K] } }[DefectType]
@@ -127,6 +143,8 @@ export const DEFECT_LABELS: Record<DefectType, string> = {
   scratch: '스크래치',
   pinhole: '핀홀',
   contamination: '오염',
+  texture: '텍스처 결함',
+  patch: '패치 이식',
 }
 
 export const REGION_KIND_LABELS: Record<RegionKind, string> = {
@@ -134,7 +152,8 @@ export const REGION_KIND_LABELS: Record<RegionKind, string> = {
   exclude: '제외 영역',
 }
 
-const ENABLED_BY_DEFAULT: Record<DefectType, boolean> = { scratch: true, pinhole: true, contamination: true }
+// The two newer types start off, so the default request stays equivalent to config 1.0.
+const ENABLED_BY_DEFAULT: Record<DefectType, boolean> = { scratch: true, pinhole: true, contamination: true, texture: false, patch: false }
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T
@@ -146,7 +165,13 @@ export function defaultDefectForm(): DefectForm {
     const { count, ...params } = clone(LIMITS.defects[type].defaults) as unknown as { count: number } & ParamsByType[K]
     return { enabled: ENABLED_BY_DEFAULT[type], count, params: { ...params, ...clone(extra) } as unknown as ParamsByType[K] }
   }
-  return { scratch: make('scratch', LIMITS.scratchOptions.defaults), pinhole: make('pinhole'), contamination: make('contamination') }
+  return {
+    scratch: make('scratch', LIMITS.scratchOptions.defaults),
+    pinhole: make('pinhole'),
+    contamination: make('contamination'),
+    texture: make('texture'),
+    patch: make('patch'),
+  }
 }
 
 export function defaultFormState(): FormState {
@@ -289,6 +314,25 @@ export const defectSchemas = {
       polarity: polaritySchema,
     }),
   }),
+  texture: z.object({
+    type: z.literal('texture'),
+    count: countSchema(L.texture.limits.count),
+    params: z.strictObject({
+      radius_px: rangeSchema(L.texture.limits.radius_px),
+      opacity: rangeSchema(L.texture.limits.opacity),
+      roughness: scalarSchema(L.texture.limits.roughness),
+      source: z.enum(['self', 'noise'], { error: '질감 출처를 선택하세요' }),
+    }),
+  }),
+  patch: z.object({
+    type: z.literal('patch'),
+    count: countSchema(L.patch.limits.count),
+    params: z.strictObject({
+      size_px: rangeSchema(L.patch.limits.size_px),
+      scale: rangeSchema(L.patch.limits.scale),
+      blend: z.enum(['source', 'mixed'], { error: '섞는 방식을 선택하세요' }),
+    }),
+  }),
 } as const
 
 export const seedSchema = z
@@ -317,9 +361,9 @@ export const generationConfigSchema = z.strictObject({
   edge_margin_px: edgeMarginSchema,
   reference_line: z.strictObject({ start: pointSchema, end: pointSchema }).nullable(),
   defects: z
-    .array(z.discriminatedUnion('type', [defectSchemas.scratch, defectSchemas.pinhole, defectSchemas.contamination]))
+    .array(z.discriminatedUnion('type', [defectSchemas.scratch, defectSchemas.pinhole, defectSchemas.contamination, defectSchemas.texture, defectSchemas.patch]))
     .min(1, { error: '결함 유형을 하나 이상 선택하세요' })
-    .max(3),
+    .max(5),
 })
 
 /** Field errors keyed like "scratch.params.length_px", "scratch.params.orientation.jitter_deg", "scratch.count", "seed", "edgeMarginPx", "defects". */

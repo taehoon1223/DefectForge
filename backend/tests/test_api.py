@@ -34,7 +34,7 @@ def _b64_image(value: str) -> np.ndarray:
 
 def test_health(client):
     resp = client.get("/api/v1/health")
-    assert resp.status_code == 200 and resp.json() == {"status": "ok", "version": "1.1.0"}
+    assert resp.status_code == 200 and resp.json() == {"status": "ok", "version": "1.2.0"}
 
 
 def test_openapi_docs_enabled(client):

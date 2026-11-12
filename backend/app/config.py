@@ -6,9 +6,9 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.2.0"
 CONFIG_VERSION = "1.0"
-# Engine version recorded for config 1.0 output. The basic engine is unchanged in 1.1, so its
+# Engine version recorded for config 1.0 output. The basic engine is unchanged since 1.0, so its
 # metadata (and therefore its reproducibility hashes) stays exactly as in release 1.0.0.
 BASIC_ENGINE_VERSION = "1.0.0"
 

@@ -15,10 +15,19 @@ const DESCRIPTIONS: Record<DefectType, string> = {
   scratch: '선형 긁힘 · 길이 방향 강도 변화',
   pinhole: '미세 점 형태 (pinhole-like appearance)',
   contamination: '먼지·이물·얼룩 형태의 불규칙 blob',
+  texture: '불규칙한 모양 안에 다른 질감을 섞음 (DRAEM 방식)',
+  patch: '이미지의 다른 부분을 돌려서 경계 없이 섞어 넣음 (NSA 방식)',
 }
 
 /** Error keys shown next to always-visible controls; any other params error opens "세부 설정". */
-const CORE_ERROR_KEYS = new Set(['scratch.params.polarity', 'scratch.params.orientation.mode', 'scratch.params.orientation.angle_deg', 'scratch.params.shading.mode'])
+const CORE_ERROR_KEYS = new Set([
+  'scratch.params.polarity',
+  'scratch.params.orientation.mode',
+  'scratch.params.orientation.angle_deg',
+  'scratch.params.shading.mode',
+  'texture.params.source',
+  'patch.params.blend',
+])
 
 const SO = LIMITS.scratchOptions.limits
 
@@ -290,10 +299,72 @@ function ContaminationDetails({ errors }: { errors: FormErrors }) {
   )
 }
 
+// ---------------------------------------------------------------- texture / patch (config 1.1)
+
+function TextureCore() {
+  const [p, set] = useParam('texture')
+  return (
+    <Segmented
+      label="질감"
+      options={[
+        { value: 'self', label: '이미지에서' },
+        { value: 'noise', label: '노이즈' },
+      ]}
+      value={p.source}
+      onChange={(v) => set('source', v)}
+      testId="texture-source"
+    />
+  )
+}
+
+function TextureDetails({ errors }: { errors: FormErrors }) {
+  const [p, set] = useParam('texture')
+  const lim = LIMITS.defects.texture.limits
+  return (
+    <>
+      <RangeField label="반지름" unit="px" value={p.radius_px} onChange={(v) => set('radius_px', v)} error={err(errors, 'texture', 'radius_px')} testId="texture-radius" />
+      <RangeField label="불투명도" value={p.opacity} onChange={(v) => set('opacity', v)} error={err(errors, 'texture', 'opacity')} step={0.05} testId="texture-opacity" />
+      <SliderField label="거칠기" value={p.roughness} min={lim.roughness[0]} max={lim.roughness[1]} step={0.05} onChange={(v) => set('roughness', v)} error={err(errors, 'texture', 'roughness')} />
+      <p className="text-[11px] leading-relaxed text-faint">‘이미지에서’는 같은 이미지의 다른 곳을 돌리고 밝기를 바꿔 채우고, ‘노이즈’는 주변 색에 노이즈 무늬를 입힙니다.</p>
+    </>
+  )
+}
+
+function PatchCore() {
+  const [p, set] = useParam('patch')
+  return (
+    <Segmented
+      label="섞기"
+      options={[
+        { value: 'source', label: '패치 결 유지' },
+        { value: 'mixed', label: '표면과 섞기' },
+      ]}
+      value={p.blend}
+      onChange={(v) => set('blend', v)}
+      testId="patch-blend"
+    />
+  )
+}
+
+function PatchDetails({ errors }: { errors: FormErrors }) {
+  const [p, set] = useParam('patch')
+  return (
+    <>
+      <RangeField label="크기" unit="px" value={p.size_px} onChange={(v) => set('size_px', v)} error={err(errors, 'patch', 'size_px')} testId="patch-size" />
+      <RangeField label="배율" value={p.scale} onChange={(v) => set('scale', v)} error={err(errors, 'patch', 'scale')} step={0.05} testId="patch-scale" />
+      <p className="text-[11px] leading-relaxed text-faint">
+        같은 이미지의 다른 곳을 90°/270° 돌려 포아송 블렌딩으로 붙입니다. 결이 있는 표면에서 잘 보이고, ‘표면과 섞기’는 더 은은합니다.
+      </p>
+    </>
+  )
+}
+
 const CONTROLS: Record<DefectType, { Core: (props: { errors: FormErrors }) => ReactNode; Details: (props: { errors: FormErrors }) => ReactNode }> = {
   scratch: { Core: ScratchCore, Details: ScratchDetails },
   pinhole: { Core: PinholeCore, Details: PinholeDetails },
   contamination: { Core: ContaminationCore, Details: ContaminationDetails },
+  texture: { Core: TextureCore, Details: TextureDetails },
+  patch: { Core: PatchCore, Details: PatchDetails },
 }
 
 /** One panel per defect type; the title-bar checkbox turns it on/off (like a darktable module). */

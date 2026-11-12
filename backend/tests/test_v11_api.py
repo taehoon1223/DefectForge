@@ -33,7 +33,7 @@ def test_preview_v11_returns_area_metadata(client, part_png):
     resp = post_preview(client, png, config(fixture, count=2))
     assert resp.status_code == 200, resp.text
     meta = resp.json()["metadata"]
-    assert meta["version"] == "1.1" and meta["engine_version"] == "1.1.0"
+    assert meta["version"] == "1.1" and meta["engine_version"] == "1.2.0"
     assert meta["generated_count"] == meta["requested_count"] == 2
     assert meta["area"]["regions"][0]["id"] == "electrode_a"
     assert meta["reference_line"]["angle_deg"] == pytest.approx(12, abs=0.5)
@@ -62,7 +62,7 @@ def test_export_v11_first_sample_matches_preview_and_keeps_area_info(client, par
     assert zf.read("binary_masks/binary_0001.png") == base64.b64decode(preview["binary_mask_png_base64"])
     assert json.loads(zf.read("metadata/image_0001.json")) == preview["metadata"]
     manifest = json.loads(zf.read("manifest.json"))
-    assert manifest["generator"]["engine_version"] == "1.1.0"
+    assert manifest["generator"]["engine_version"] == "1.2.0"
     for key in ("area", "reference_line", "surface_analysis", "algorithm_versions"):
         assert manifest[key] == preview["metadata"][key]
     assert [f["seed"] for f in manifest["files"]] == [77, 78, 79]

@@ -23,7 +23,7 @@ const fakeResult = (): PreviewResponse => ({
     requested_count: 7,
     generated_count: 7,
     changed_pixel_count: 100,
-    class_pixel_counts: { scratch: 10, pinhole: 20, contamination: 70 },
+    class_pixel_counts: { scratch: 10, pinhole: 20, contamination: 70, texture: 0, patch: 0 },
     instances: [],
     config: { version: '1.1', seed: 42, allow_overlap: false, regions: [], edge_margin_px: 0, reference_line: null, defects: [] },
     area: { full_image: true, edge_margin_px: 0, include_pixel_count: 512 * 448, excluded_pixel_count: 0, allowed_pixel_count: 512 * 448, regions: [] },

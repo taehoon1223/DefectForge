@@ -25,7 +25,7 @@ export function MaskLegend() {
               {DEFECT_LABELS[type]}
             </span>
             <span className="num ml-auto text-muted" data-testid={`legend-count-${type}`}>
-              {counts ? `${counts[type].toLocaleString()} px` : ''}
+              {counts?.[type] !== undefined ? `${counts[type].toLocaleString()} px` : ''}
             </span>
           </li>
         ))}

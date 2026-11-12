@@ -1,4 +1,4 @@
-"""Config 1.1 pipeline: 1.0 defects inside include/exclude areas, plus scratch direction and surface matching.
+"""Config 1.1 pipeline: 1.0 defects (+ texture/patch) inside include/exclude areas, scratch direction and surface matching.
 
 prepare (once per request):  regions -> allowed area (core/regions.py) -> reference line -> scratch base angle
                              -> local surface analysis of the *source* when scratch shading is "local"
@@ -20,8 +20,11 @@ from app.core.generation import HINTS_KO, GenerationResult, PlacementJob, common
 from app.core.image_io import SourceImage
 from app.core.regions import REGION_GEOMETRY_VERSION, AreaGeometry, prepare_area
 from app.core.surface import ANALYSIS_VERSION, SurfaceAnalysis, analyze_surface
-from app.defects import GENERATORS
+from app.defects import GENERATORS, V11_CLASS_MAP
 from app.defects.adaptive_scratch import ADAPTIVE_SCRATCH_VERSION, AdaptiveScratchGenerator
+from app.defects.base import DefectGenerator
+from app.defects.patch import PatchGenerator
+from app.defects.texture import TextureGenerator
 from app.defects.base import r4
 from app.error_codes import DefectForgeError, ErrorCode
 from app.schemas.generation import REFERENCE_LINE_MIN_LENGTH_PX, V11_CONFIG_VERSION, GenerationConfigV11, OrientationSpec
@@ -112,21 +115,24 @@ def prepare_v11_context(source: SourceImage, config: GenerationConfigV11) -> V11
     return V11Context(area=area, analysis=analysis, base_angle_deg=base_angle, metadata=metadata)
 
 
+def _generator(defect_type: str, source: SourceImage, ctx: V11Context) -> DefectGenerator:
+    if defect_type == "scratch":
+        return AdaptiveScratchGenerator(source.rgb, ctx.analysis, ctx.base_angle_deg, ctx.area.distance_to_edge)
+    if defect_type == "texture":
+        return TextureGenerator(source.rgb)
+    if defect_type == "patch":
+        return PatchGenerator(source.rgb)
+    return GENERATORS[defect_type]
+
+
 def generate_v11_sample(source: SourceImage, config: GenerationConfigV11, seed: int, ctx: V11Context) -> GenerationResult:
     """Deterministic for (source pixels, config, seed); ``ctx`` must come from prepare_v11_context."""
     rng = np.random.default_rng(seed)
     allowed = ctx.area.allowed
     canvas = CompositeCanvas(source.rgb, allowed.mask, config.allow_overlap)
-    jobs: list[PlacementJob] = []
-    for spec in config.defects:
-        generator = (
-            AdaptiveScratchGenerator(source.rgb, ctx.analysis, ctx.base_angle_deg, ctx.area.distance_to_edge)
-            if spec.type == "scratch"
-            else GENERATORS[spec.type]
-        )
-        jobs.append((spec.type, generator, spec.params, spec.count))
+    jobs: list[PlacementJob] = [(spec.type, _generator(spec.type, source, ctx), spec.params, spec.count) for spec in config.defects]
     instances = place_instances(rng, allowed, canvas, jobs, HINTS_V11)
     final = canvas.finalize()
-    metadata = common_metadata(V11_CONFIG_VERSION, APP_VERSION, source, seed, None, config, instances, final)
+    metadata = common_metadata(V11_CONFIG_VERSION, APP_VERSION, source, seed, None, config, instances, final, V11_CLASS_MAP)
     metadata.update(ctx.metadata)
     return GenerationResult(final.image, final.class_mask, final.binary_mask, final.instance_map, metadata)

@@ -13,7 +13,10 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validat
 from app.config import CONFIG_VERSION
 
 Polarity = Literal["dark", "bright", "random"]
-DefectType = Literal["scratch", "pinhole", "contamination"]
+# "texture" and "patch" exist only in config 1.1; config 1.0 accepts the first three.
+DefectType = Literal["scratch", "pinhole", "contamination", "texture", "patch"]
+TextureSource = Literal["self", "noise"]
+PatchBlend = Literal["source", "mixed"]
 
 # (min, max) inclusive bounds for every user-tunable value.
 LIMITS: dict[str, dict[str, tuple[float, float]]] = {
@@ -38,6 +41,17 @@ LIMITS: dict[str, dict[str, tuple[float, float]]] = {
         "irregularity": (0, 1),
         "opacity": (0.1, 1.0),
         "blur_sigma": (0, 8),
+    },
+    "texture": {
+        "count": (1, 20),
+        "radius_px": (4, 120),
+        "opacity": (0.1, 1.0),
+        "roughness": (0, 1),
+    },
+    "patch": {
+        "count": (1, 20),
+        "size_px": (8, 200),
+        "scale": (0.5, 2.0),
     },
 }
 
@@ -66,6 +80,19 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         "opacity": [0.3, 0.7],
         "blur_sigma": 1.5,
         "polarity": "dark",
+    },
+    "texture": {
+        "count": 2,
+        "radius_px": [12, 32],
+        "opacity": [0.5, 0.9],
+        "roughness": 0.5,
+        "source": "self",
+    },
+    "patch": {
+        "count": 2,
+        "size_px": [20, 48],
+        "scale": [0.8, 1.25],
+        "blend": "source",
     },
 }
 
@@ -133,6 +160,23 @@ class ContaminationParams(_Strict):
     polarity: Polarity = _default("contamination", "polarity")
 
 
+class TextureParams(_Strict):
+    """DRAEM-style: Perlin-noise blob filled with a foreign texture (config 1.1 only)."""
+
+    radius_px: _range("texture", "radius_px") = _default("texture", "radius_px")
+    opacity: _range("texture", "opacity") = _default("texture", "opacity")
+    roughness: _scalar("texture", "roughness") = _default("texture", "roughness")
+    source: TextureSource = _default("texture", "source")
+
+
+class PatchParams(_Strict):
+    """NSA-style: a patch from elsewhere in the image, Poisson-blended in (config 1.1 only)."""
+
+    size_px: _range("patch", "size_px") = _default("patch", "size_px")
+    scale: _range("patch", "scale") = _default("patch", "scale")
+    blend: PatchBlend = _default("patch", "blend")
+
+
 class ScratchDefect(_Strict):
     type: Literal["scratch"]
     count: _count("scratch") = DEFAULTS["scratch"]["count"]
@@ -149,6 +193,18 @@ class ContaminationDefect(_Strict):
     type: Literal["contamination"]
     count: _count("contamination") = DEFAULTS["contamination"]["count"]
     params: ContaminationParams = Field(default_factory=ContaminationParams)
+
+
+class TextureDefect(_Strict):
+    type: Literal["texture"]
+    count: _count("texture") = DEFAULTS["texture"]["count"]
+    params: TextureParams = Field(default_factory=TextureParams)
+
+
+class PatchDefect(_Strict):
+    type: Literal["patch"]
+    count: _count("patch") = DEFAULTS["patch"]["count"]
+    params: PatchParams = Field(default_factory=PatchParams)
 
 
 DefectSpec = Annotated[Union[ScratchDefect, PinholeDefect, ContaminationDefect], Field(discriminator="type")]
@@ -254,7 +310,7 @@ class AdaptiveScratchDefect(_Strict):
     params: AdaptiveScratchParams = Field(default_factory=AdaptiveScratchParams)
 
 
-DefectSpecV11 = Annotated[Union[AdaptiveScratchDefect, PinholeDefect, ContaminationDefect], Field(discriminator="type")]
+DefectSpecV11 = Annotated[Union[AdaptiveScratchDefect, PinholeDefect, ContaminationDefect, TextureDefect, PatchDefect], Field(discriminator="type")]
 
 
 class GenerationConfigV11(_Strict):
@@ -265,7 +321,7 @@ class GenerationConfigV11(_Strict):
     regions: Annotated[list[RegionSpec], Field(max_length=REGION_MAX_COUNT)] = Field(default_factory=list)
     edge_margin_px: Annotated[float, Field(ge=AREA_LIMITS["edge_margin_px"][0], le=AREA_LIMITS["edge_margin_px"][1])] = AREA_DEFAULTS["edge_margin_px"]
     reference_line: ReferenceLine | None = None
-    defects: Annotated[list[DefectSpecV11], Field(min_length=1, max_length=3)]
+    defects: Annotated[list[DefectSpecV11], Field(min_length=1, max_length=5)]
 
     @field_validator("defects")
     @classmethod
