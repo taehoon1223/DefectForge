@@ -1,7 +1,8 @@
-"""Config 1.1 pipeline: 1.0 defects (+ texture/patch) inside include/exclude areas, scratch direction and surface matching.
+"""Config 1.1 pipeline: 1.0 defects (+ texture/patch/real) inside include/exclude areas, scratch direction and surface matching.
 
 prepare (once per request):  regions -> allowed area (core/regions.py) -> reference line -> scratch base angle
                              -> local surface analysis of the *source* when scratch shading is "local"
+                             -> exemplars of the uploaded defect samples when "real" is requested
 generate (per seed):         rng(seed) -> place_instances (shared with 1.0, max 100 attempts)
                              -> CompositeCanvas restricted to the allowed area -> masks + metadata
 """
@@ -9,6 +10,7 @@ generate (per seed):         rng(seed) -> place_instances (shared with 1.0, max 
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -19,11 +21,14 @@ from app.core.compositor import CompositeCanvas
 from app.core.generation import HINTS_KO, GenerationResult, PlacementJob, common_metadata, place_instances
 from app.core.image_io import SourceImage
 from app.core.regions import REGION_GEOMETRY_VERSION, AreaGeometry, prepare_area
+from app.core.samples import SAMPLE_ANALYSIS_VERSION, DefectSampleSet
 from app.core.surface import ANALYSIS_VERSION, SurfaceAnalysis, analyze_surface
-from app.defects import GENERATORS, V11_CLASS_MAP
+from app.core.yolo import YoloClasses
+from app.defects import GENERATORS, REAL_CLASS_OFFSET, v11_class_map
 from app.defects.adaptive_scratch import ADAPTIVE_SCRATCH_VERSION, AdaptiveScratchGenerator
 from app.defects.base import DefectGenerator
 from app.defects.patch import PatchGenerator
+from app.defects.real import REAL_DEFECT_VERSION, RealDefectGenerator
 from app.defects.texture import TextureGenerator
 from app.defects.base import r4
 from app.error_codes import DefectForgeError, ErrorCode
@@ -68,10 +73,26 @@ class V11Context:
     area: AreaGeometry
     analysis: SurfaceAnalysis | None
     base_angle_deg: float | None
-    metadata: dict[str, Any]  # area / reference_line / surface_analysis / algorithm_versions
+    samples: DefectSampleSet | None  # only when the config asks for "real" defects
+    class_map: dict[str, str]
+    yolo: YoloClasses
+    metadata: dict[str, Any]  # area / reference_line / surface_analysis / real_samples / algorithm_versions
 
 
-def prepare_v11_context(source: SourceImage, config: GenerationConfigV11) -> V11Context:
+def yolo_classes(class_map: dict[str, str], real_class_names: Sequence[str]) -> YoloClasses:
+    """Label classes keep their own YOLO numbers 0..K-1 (so the output merges with the source dataset);
+    the rule-based types follow as K.. in class-id order."""
+    k = len(real_class_names)
+    by_class_id = {REAL_CLASS_OFFSET + i: i for i in range(k)}
+    names = list(real_class_names)
+    for cid in sorted(int(c) for c in class_map if 0 < int(c) < REAL_CLASS_OFFSET):
+        by_class_id[cid] = k + cid - 1
+        names.append(class_map[str(cid)])
+    return YoloClasses(by_class_id, names)
+
+
+def prepare_v11_context(source: SourceImage, config: GenerationConfigV11, samples: DefectSampleSet | None = None) -> V11Context:
+    """``samples`` are only used (and required) when the config asks for "real" defects."""
     width, height = source.width, source.height
     area = prepare_area(config.regions, config.edge_margin_px, width, height)
 
@@ -102,17 +123,38 @@ def prepare_v11_context(source: SourceImage, config: GenerationConfigV11) -> V11
         if shading.mode == "local":
             analysis = analyze_surface(source.rgb, area.stats_domain, shading.window_sigma_px)
 
+    real = config.uses_real_samples
+    if real and (samples is None or not samples.samples):
+        raise DefectForgeError(
+            ErrorCode.INVALID_DEFECT_SAMPLE,
+            "‘실제 결함’에는 결함 샘플(결함 이미지 + YOLO 라벨 txt)이 하나 이상 필요합니다. 샘플을 추가하거나 ‘실제 결함’을 끄세요.",
+        )
+    used = samples if real else None
+    real_names = used.class_names if used is not None else ()
+    class_map = v11_class_map(real_names)
+
     metadata = {
         "area": area.metadata,
         "reference_line": line_meta,
         "surface_analysis": analysis.summary if analysis is not None else None,
+        "real_samples": used.metadata if used is not None else None,
         "algorithm_versions": {
             "region_geometry": REGION_GEOMETRY_VERSION,
             "surface_analysis": ANALYSIS_VERSION if analysis is not None else None,
             "adaptive_scratch": ADAPTIVE_SCRATCH_VERSION if scratch is not None else None,
+            "defect_samples": SAMPLE_ANALYSIS_VERSION if real else None,
+            "real_defect": REAL_DEFECT_VERSION if real else None,
         },
     }
-    return V11Context(area=area, analysis=analysis, base_angle_deg=base_angle, metadata=metadata)
+    return V11Context(
+        area=area,
+        analysis=analysis,
+        base_angle_deg=base_angle,
+        samples=used,
+        class_map=class_map,
+        yolo=yolo_classes(class_map, real_names),
+        metadata=metadata,
+    )
 
 
 def _generator(defect_type: str, source: SourceImage, ctx: V11Context) -> DefectGenerator:
@@ -122,6 +164,9 @@ def _generator(defect_type: str, source: SourceImage, ctx: V11Context) -> Defect
         return TextureGenerator(source.rgb)
     if defect_type == "patch":
         return PatchGenerator(source.rgb)
+    if defect_type == "real":
+        assert ctx.samples is not None  # prepare_v11_context requires samples for "real"
+        return RealDefectGenerator(ctx.samples.exemplars, ctx.samples.class_names)
     return GENERATORS[defect_type]
 
 
@@ -133,6 +178,6 @@ def generate_v11_sample(source: SourceImage, config: GenerationConfigV11, seed: 
     jobs: list[PlacementJob] = [(spec.type, _generator(spec.type, source, ctx), spec.params, spec.count) for spec in config.defects]
     instances = place_instances(rng, allowed, canvas, jobs, HINTS_V11)
     final = canvas.finalize()
-    metadata = common_metadata(V11_CONFIG_VERSION, APP_VERSION, source, seed, None, config, instances, final, V11_CLASS_MAP)
+    metadata = common_metadata(V11_CONFIG_VERSION, APP_VERSION, source, seed, None, config, instances, final, ctx.class_map)
     metadata.update(ctx.metadata)
     return GenerationResult(final.image, final.class_mask, final.binary_mask, final.instance_map, metadata)

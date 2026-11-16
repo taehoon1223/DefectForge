@@ -46,6 +46,18 @@ describe('buildGenerationConfig', () => {
     expect(config.defects[3]).toMatchObject({ type: 'texture', count: 2, params: { source: 'noise', roughness: 0.5 } })
   })
 
+  it('leaves real defects off by default, appends them last and validates their ranges', () => {
+    const f = form((x) => {
+      x.defects.real.enabled = true
+      x.defects.real.params.rotation = 'keep'
+    })
+    const config = buildGenerationConfig(f, [], null)
+    expect(config.defects.at(-1)).toEqual({ type: 'real', count: 2, params: { scale: [0.8, 1.25], intensity: [0.8, 1.2], rotation: 'keep' } })
+    expect(generationConfigSchema.safeParse(config).success).toBe(true)
+    f.defects.real.params.intensity = [0.2, 1]
+    expect(validateForm(f)['real.params.intensity']).toContain('0.3~2')
+  })
+
   it('includes only enabled defects, in the fixed scratch -> pinhole -> contamination order', () => {
     const polygon: Point[] = [
       [1, 2],

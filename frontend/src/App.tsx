@@ -1,5 +1,6 @@
 import { AreaPanel } from './components/AreaEditor'
 import { DefectControls, GenerateBar, GenerationSettings } from './components/DefectControls'
+import { DefectSamplesPanel } from './components/DefectSamples'
 import { ExportPanel } from './components/ExportPanel'
 import { GenerationSummary } from './components/GenerationSummary'
 import { Header } from './components/Header'
@@ -17,6 +18,7 @@ export default function App() {
         <aside className="flex flex-col border-line bg-panel lg:min-h-0 lg:overflow-y-auto" aria-label="입력 설정" data-testid="left-panel">
           <ImageUploader />
           <AreaPanel />
+          <DefectSamplesPanel />
           <DefectControls />
           <GenerationSettings />
           <div className="flex-1" />

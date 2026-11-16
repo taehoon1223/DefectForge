@@ -20,6 +20,7 @@ export function Section({
   children,
   testId,
   dimmed = false,
+  defaultOpen = true,
 }: {
   title: string
   aside?: ReactNode
@@ -27,8 +28,9 @@ export function Section({
   children?: ReactNode
   testId?: string
   dimmed?: boolean
+  defaultOpen?: boolean
 }) {
-  const [open, setOpen] = useState(true)
+  const [open, setOpen] = useState(defaultOpen)
   const bodyId = useId()
   const hasBody = children !== undefined && children !== null && children !== false
   return (

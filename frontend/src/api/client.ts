@@ -1,4 +1,4 @@
-import type { GenerationConfig, PreviewResponse } from '../types/generation'
+import type { DefectSample, DefectSampleAnalysis, GenerationConfig, PreviewResponse } from '../types/generation'
 
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000').replace(/\/+$/, '')
 
@@ -53,11 +53,24 @@ async function request(path: string, init: RequestInit): Promise<Response> {
   )
 }
 
-function formData(file: File, config: GenerationConfig): FormData {
+/** Real-defect samples (image + YOLO label txt) and the optional classes.txt / data.yaml. */
+export type DefectSampleUpload = { samples: DefectSample[]; classNames: File | null }
+
+function formData(file: File, config: GenerationConfig, upload: DefectSampleUpload): FormData {
   const form = new FormData()
   form.append('file', file, file.name)
   form.append('config', JSON.stringify(config))
+  // Real-defect samples travel with the request only when the config uses them.
+  if (config.defects.some((d) => d.type === 'real')) appendDefectSamples(form, upload)
   return form
+}
+
+function appendDefectSamples(form: FormData, { samples, classNames }: DefectSampleUpload): void {
+  for (const sample of samples) {
+    form.append('defect_images', sample.image, sample.image.name)
+    form.append('defect_labels', sample.label, sample.label.name)
+  }
+  if (classNames) form.append('class_names', classNames, classNames.name)
 }
 
 export async function fetchHealth(signal?: AbortSignal): Promise<{ status: string; version: string }> {
@@ -65,8 +78,16 @@ export async function fetchHealth(signal?: AbortSignal): Promise<{ status: strin
   return response.json()
 }
 
-export async function requestPreview(file: File, config: GenerationConfig, signal?: AbortSignal): Promise<PreviewResponse> {
-  const response = await request('/api/v1/preview', { method: 'POST', body: formData(file, config), signal })
+export async function requestPreview(file: File, config: GenerationConfig, upload: DefectSampleUpload, signal?: AbortSignal): Promise<PreviewResponse> {
+  const response = await request('/api/v1/preview', { method: 'POST', body: formData(file, config, upload), signal })
+  return response.json()
+}
+
+/** Measures every defect in the samples and suggests rule-based parameters (backend core/samples.py). */
+export async function requestSampleAnalysis(upload: DefectSampleUpload, signal?: AbortSignal): Promise<DefectSampleAnalysis> {
+  const form = new FormData()
+  appendDefectSamples(form, upload)
+  const response = await request('/api/v1/defect-samples/analyze', { method: 'POST', body: form, signal })
   return response.json()
 }
 
@@ -74,9 +95,10 @@ export async function requestExport(
   file: File,
   config: GenerationConfig,
   sampleCount: number,
+  upload: DefectSampleUpload,
   signal?: AbortSignal,
 ): Promise<{ blob: Blob; filename: string }> {
-  const form = formData(file, config)
+  const form = formData(file, config, upload)
   form.append('sample_count', String(sampleCount))
   const response = await request('/api/v1/export', { method: 'POST', body: form, signal })
   const disposition = response.headers.get('content-disposition') ?? ''

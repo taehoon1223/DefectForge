@@ -1,8 +1,9 @@
 import { create } from 'zustand'
-import { ApiError, isAbortError, requestExport, requestPreview, triggerDownload } from '../api/client'
+import { ApiError, isAbortError, requestExport, requestPreview, requestSampleAnalysis, triggerDownload, type DefectSampleUpload } from '../api/client'
 import { validateRoi } from '../lib/geometry'
 import {
   buildGenerationConfig,
+  DEFECT_LABELS,
   defaultFormState,
   fingerprint,
   LIMITS,
@@ -11,7 +12,10 @@ import {
   REGION_KIND_LABELS,
   resultDeterminingConfig,
   validateForm,
+  type DefectSample,
+  type DefectSampleAnalysis,
   type DefectType,
+  type FittableType,
   type FormState,
   type GenerationConfig,
   type ParamsByType,
@@ -55,6 +59,15 @@ export type WorkspaceState = {
   isExporting: boolean
   error: ErrorInfo | null
   toasts: ToastItem[]
+  /** Real-defect samples (image + YOLO label txt); kept when the surface image is replaced. */
+  defectSamples: DefectSample[]
+  /** Optional classes.txt / data.yaml naming the label classes. */
+  classNamesFile: File | null
+  /** Server measurements of every sample defect + fitted rule parameters (null while none / stale). */
+  sampleAnalysis: DefectSampleAnalysis | null
+  /** Incremented whenever the samples or class names change; part of the preview fingerprint while "real" is on. */
+  samplesVersion: number
+  isAnalyzingSamples: boolean
 
   setSource: (file: File, url: string, size: ImageSize) => void
   setTool: (tool: Tool) => void
@@ -85,6 +98,13 @@ export type WorkspaceState = {
   dismissToast: (id: number) => void
   generatePreview: () => Promise<void>
   exportDataset: () => Promise<void>
+  /** Validates + measures on the server first; the sample is added only if that succeeds. */
+  addDefectSample: (image: File, label: File) => Promise<boolean>
+  removeDefectSample: (id: string) => Promise<void>
+  /** Sets (or clears) the class-name file; kept only if the server accepts it with the current samples. */
+  setClassNamesFile: (file: File | null) => Promise<boolean>
+  /** Copies the fitted parameters into a rule-based type and turns it on. */
+  applySampleFit: (type: FittableType) => void
 }
 
 type ConfigState = Pick<WorkspaceState, 'form' | 'regions' | 'referenceLine'>
@@ -93,19 +113,21 @@ let previewController: AbortController | null = null
 let exportController: AbortController | null = null
 let toastSeq = 0
 let regionSeq = 0
+let sampleSeq = 0
 
 export function buildActiveConfig(state: ConfigState): GenerationConfig {
   return buildGenerationConfig(state.form, state.regions, state.referenceLine)
 }
 
-/** Fingerprint of everything that determines a preview: image identity + request config (minus display names). */
-export function currentConfigHash(state: ConfigState & Pick<WorkspaceState, 'sourceVersion'>): string {
-  return fingerprint({ source: state.sourceVersion, config: resultDeterminingConfig(buildActiveConfig(state)) })
+/** Fingerprint of everything that determines a preview: image identity + request config (minus display names) + samples in use. */
+export function currentConfigHash(state: ConfigState & Pick<WorkspaceState, 'sourceVersion' | 'samplesVersion'>): string {
+  const samples = state.form.defects.real.enabled ? state.samplesVersion : null
+  return fingerprint({ source: state.sourceVersion, config: resultDeterminingConfig(buildActiveConfig(state)), samples })
 }
 
 /** Reason generation/export is blocked, or null when ready. */
 export function blockingReason(
-  state: ConfigState & Pick<WorkspaceState, 'sourceFile' | 'sourceImageSize' | 'draft' | 'drawKind' | 'lineDraft'>,
+  state: ConfigState & Pick<WorkspaceState, 'sourceFile' | 'sourceImageSize' | 'draft' | 'drawKind' | 'lineDraft' | 'defectSamples'>,
 ): string | null {
   const size = state.sourceImageSize
   if (!state.sourceFile || !size) return '이미지를 먼저 업로드하세요.'
@@ -121,7 +143,24 @@ export function blockingReason(
   if (needsReferenceLine(state.form) && !state.referenceLine) {
     return '스크래치 방향 ‘기준선’에는 기준선이 필요합니다. ‘기준선 그리기’로 두 점을 찍거나 다른 방향을 고르세요.'
   }
+  if (state.form.defects.real.enabled && state.defectSamples.length === 0) {
+    return '‘실제 결함’에 쓸 결함 샘플을 먼저 추가하세요 (결함 샘플 → 이미지·라벨 txt 선택 → 샘플 추가).'
+  }
   return null
+}
+
+const FIT_LABELS: Record<string, string> = { length_px: '길이', width_px: '폭', radius_px: '반지름', contrast: '대비', opacity: '불투명도' }
+const POLARITY_LABELS: Record<string, string> = { dark: '어둡게', bright: '밝게', random: '랜덤' }
+
+/** "길이 36–132 px · 대비 0.3–0.62 · 극성 어둡게" for the fit confirmation. */
+export function describeFit(suggestion: Record<string, unknown>): string {
+  return Object.entries(suggestion)
+    .map(([key, value]) => {
+      if (key === 'polarity') return `극성 ${POLARITY_LABELS[String(value)] ?? value}`
+      const [lo, hi] = value as number[]
+      return `${FIT_LABELS[key] ?? key} ${lo}–${hi}${key.endsWith('_px') ? ' px' : ''}`
+    })
+    .join(' · ')
 }
 
 export function nextRegionName(kind: RegionKind, regions: Region[]): string {
@@ -143,6 +182,16 @@ function toErrorInfo(error: unknown): ErrorInfo {
 
 function updateDefect<K extends DefectType>(form: FormState, type: K, patch: Partial<FormState['defects'][K]>): FormState {
   return { ...form, defects: { ...form.defects, [type]: { ...form.defects[type], ...patch } } }
+}
+
+function sampleUpload(state: Pick<WorkspaceState, 'defectSamples' | 'classNamesFile'>): DefectSampleUpload {
+  return { samples: state.defectSamples, classNames: state.classNamesFile }
+}
+
+/** Measured values replace only the fitted keys; the type is switched on. */
+function fitDefect<K extends FittableType>(form: FormState, type: K, suggestion: Partial<ParamsByType[K]>): FormState {
+  const params = { ...form.defects[type].params, ...suggestion }
+  return updateDefect(form, type, { enabled: true, params } as Partial<FormState['defects'][K]>)
 }
 
 function updateScratchParams(form: FormState, patch: Partial<ScratchParams>): FormState {
@@ -172,6 +221,11 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
   isExporting: false,
   error: null,
   toasts: [],
+  defectSamples: [],
+  classNamesFile: null,
+  sampleAnalysis: null,
+  samplesVersion: 0,
+  isAnalyzingSamples: false,
 
   setSource: (file, url, size) => {
     // A new image invalidates everything tied to the old one, including in-flight requests.
@@ -255,7 +309,7 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
     previewController = controller
     set({ isGenerating: true, error: null })
     try {
-      const result = await requestPreview(state.sourceFile, config, controller.signal)
+      const result = await requestPreview(state.sourceFile, config, sampleUpload(state), controller.signal)
       if (get().sourceVersion !== version) return // image replaced meanwhile: drop stale result
       set((s) => ({
         currentResult: result,
@@ -292,7 +346,7 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
     exportController = controller
     set({ isExporting: true, error: null })
     try {
-      const { blob, filename } = await requestExport(state.sourceFile, config, count, controller.signal)
+      const { blob, filename } = await requestExport(state.sourceFile, config, count, sampleUpload(state), controller.signal)
       if (get().sourceVersion !== version) return
       triggerDownload(blob, filename)
       get().pushToast('success', `데이터셋 ${count}장을 ZIP으로 내려받았습니다 (${(blob.size / 1024 / 1024).toFixed(2)} MB).`)
@@ -305,5 +359,71 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
         if (get().sourceVersion === version) set({ isExporting: false })
       }
     }
+  },
+
+  addDefectSample: async (image, label) => {
+    const state = get()
+    if (state.isAnalyzingSamples) return false
+    if (state.defectSamples.length >= LIMITS.defectSamples.maxCount) {
+      set({ error: { code: 'CLIENT_VALIDATION', message: `결함 샘플은 최대 ${LIMITS.defectSamples.maxCount}개까지 추가할 수 있습니다.` } })
+      return false
+    }
+    const next = [...state.defectSamples, { id: `sample-${++sampleSeq}`, image, label }]
+    set({ isAnalyzingSamples: true, error: null })
+    try {
+      const analysis = await requestSampleAnalysis({ samples: next, classNames: state.classNamesFile })
+      set((s) => ({ defectSamples: next, sampleAnalysis: analysis, samplesVersion: s.samplesVersion + 1 }))
+      return true
+    } catch (error) {
+      set({ error: toErrorInfo(error) }) // the list stays as it was
+      return false
+    } finally {
+      set({ isAnalyzingSamples: false })
+    }
+  },
+
+  removeDefectSample: async (id) => {
+    if (get().isAnalyzingSamples) return
+    const next = get().defectSamples.filter((s) => s.id !== id)
+    set((s) => ({ defectSamples: next, sampleAnalysis: null, samplesVersion: s.samplesVersion + 1 }))
+    if (next.length === 0) return
+    set({ isAnalyzingSamples: true })
+    try {
+      // Fitted ranges must reflect the remaining samples.
+      const analysis = await requestSampleAnalysis({ samples: next, classNames: get().classNamesFile })
+      if (get().defectSamples === next) set({ sampleAnalysis: analysis })
+    } catch (error) {
+      set({ error: toErrorInfo(error) })
+    } finally {
+      set({ isAnalyzingSamples: false })
+    }
+  },
+
+  setClassNamesFile: async (file) => {
+    const state = get()
+    if (state.isAnalyzingSamples) return false
+    if (state.defectSamples.length === 0) {
+      set((s) => ({ classNamesFile: file, samplesVersion: s.samplesVersion + 1 })) // checked when the first sample is added
+      return true
+    }
+    set({ isAnalyzingSamples: true, error: null })
+    try {
+      const analysis = await requestSampleAnalysis({ samples: state.defectSamples, classNames: file })
+      set((s) => ({ classNamesFile: file, sampleAnalysis: analysis, samplesVersion: s.samplesVersion + 1 }))
+      return true
+    } catch (error) {
+      set({ error: toErrorInfo(error) }) // the previous names stay
+      return false
+    } finally {
+      set({ isAnalyzingSamples: false })
+    }
+  },
+
+  applySampleFit: (type) => {
+    const analysis = get().sampleAnalysis
+    if (!analysis) return
+    const suggestion = analysis.suggestions[type]
+    set((s) => ({ form: fitDefect(s.form, type, suggestion) }))
+    get().pushToast('success', `${DEFECT_LABELS[type]} 설정을 샘플 결함 ${analysis.fitted_from[type]}개에 맞췄습니다: ${describeFit(suggestion)}`)
   },
 }))

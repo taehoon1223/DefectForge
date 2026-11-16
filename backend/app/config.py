@@ -45,6 +45,9 @@ class Settings:
     job_wait_seconds: float = 15.0
     export_tmp_dir: str | None = None
     export_spool_max_bytes: int = 32 * 1024 * 1024  # ZIPs larger than this spill to an auto-deleted temp file
+    # Real-defect samples (image + mask pairs) sent with a request: how many, and their combined size.
+    max_defect_samples: int = 8
+    max_defect_sample_bytes: int = 20 * 1024 * 1024
 
     @property
     def min_image_dim(self) -> int:
@@ -63,4 +66,6 @@ def load_settings() -> Settings:
         max_concurrent_jobs=_int_env("MAX_CONCURRENT_JOBS", defaults.max_concurrent_jobs),
         job_wait_seconds=float(_int_env("JOB_WAIT_SECONDS", int(defaults.job_wait_seconds))),
         export_tmp_dir=os.environ.get("EXPORT_TMP_DIR") or None,
+        max_defect_samples=_int_env("MAX_DEFECT_SAMPLES", defaults.max_defect_samples),
+        max_defect_sample_bytes=_int_env("MAX_DEFECT_SAMPLE_MIB", 20) * 1024 * 1024,
     )

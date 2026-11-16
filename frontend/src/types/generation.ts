@@ -3,16 +3,20 @@ import limits from './limits.json'
 
 export const LIMITS = limits
 
-export type DefectType = 'scratch' | 'pinhole' | 'contamination' | 'texture' | 'patch'
+export type DefectType = 'scratch' | 'pinhole' | 'contamination' | 'texture' | 'patch' | 'real'
 export type ViewMode = 'original' | 'generated' | 'overlay' | 'classMask'
 export type Polarity = 'dark' | 'bright' | 'random'
 export type Range = [number, number]
 export type Point = [number, number]
 
 /** Fixed application order: later classes win where defects overlap. */
-export const DEFECT_TYPES: DefectType[] = ['scratch', 'pinhole', 'contamination', 'texture', 'patch']
+export const DEFECT_TYPES: DefectType[] = ['scratch', 'pinhole', 'contamination', 'texture', 'patch', 'real']
 
-export const CLASS_IDS: Record<DefectType, number> = { scratch: 1, pinhole: 2, contamination: 3, texture: 4, patch: 5 }
+export const CLASS_IDS: Record<DefectType, number> = { scratch: 1, pinhole: 2, contamination: 3, texture: 4, patch: 5, real: 6 }
+
+/** Rule-based types whose size/contrast can be fitted to measured real defects. */
+export type FittableType = 'scratch' | 'pinhole' | 'contamination'
+export const FITTABLE_TYPES: FittableType[] = ['scratch', 'pinhole', 'contamination']
 
 /** include = 결함을 넣을 곳 (없으면 이미지 전체), exclude = 그중 빼는 곳. */
 export type RegionKind = 'include' | 'exclude'
@@ -61,12 +65,62 @@ export type PatchParams = {
   scale: Range
   blend: 'source' | 'mixed'
 }
+/** A labelled real defect (uploaded image + mask): only its change from the surface is moved over. */
+export type RealParams = {
+  scale: Range
+  intensity: Range
+  rotation: 'free' | 'keep'
+}
 export type ParamsByType = {
   scratch: ScratchParams
   pinhole: PinholeParams
   contamination: ContaminationParams
   texture: TextureParams
   patch: PatchParams
+  real: RealParams
+}
+
+/** One uploaded real-defect sample: the defect image and its mask PNG (0 = background). */
+/** One uploaded real-defect sample: the defect image and its YOLO segmentation label txt. */
+export type DefectSample = { id: string; image: File; label: File }
+
+/** Label class k of the samples is class-mask value REAL_CLASS_OFFSET + k (1–5 are the rule-based types). */
+export const REAL_CLASS_OFFSET = 6
+
+/** POST /api/v1/defect-samples/analyze (backend core/samples.py). */
+export type MeasuredDefect = {
+  sample_index: number
+  defect_index: number
+  /** YOLO class number from the label, and the label line it came from. */
+  class_id: number
+  label_line: number
+  bbox_xyxy: [number, number, number, number]
+  area_px: number
+  length_px: number
+  width_px: number
+  angle_deg: number
+  radius_px: number
+  polarity: 'dark' | 'bright'
+  contrast: number
+  opacity: number
+}
+export type DefectSampleInfo = {
+  index: number
+  width: number
+  height: number
+  image_sha256: string
+  label_sha256: string
+  defect_count: number
+  class_counts: Record<string, number>
+}
+export type DefectSampleAnalysis = {
+  samples: DefectSampleInfo[]
+  /** Label classes (names from classes.txt / data.yaml, otherwise "class_<k>"). */
+  classes: Array<{ id: number; name: string; defect_count: number }>
+  defects: MeasuredDefect[]
+  suggestions: { [K in FittableType]: Partial<ParamsByType[K]> }
+  /** Defects each type was fitted to: line-like (length ≥ 3 × width) → scratch, the rest → pinhole/contamination. */
+  fitted_from: Record<FittableType, number>
 }
 
 export type DefectSpec = { [K in DefectType]: { type: K; count: number; params: ParamsByType[K] } }[DefectType]
@@ -115,7 +169,8 @@ export type GenerationMetadata = {
   requested_count: number
   generated_count: number
   changed_pixel_count: number
-  class_pixel_counts: Record<DefectType, number>
+  /** Keyed by class_map name: the rule-based type names and "real:<label class name>". */
+  class_pixel_counts: Record<string, number>
   instances: InstanceInfo[]
   config: GenerationConfig
   area: {
@@ -128,6 +183,7 @@ export type GenerationMetadata = {
   }
   reference_line: { start: Point; end: Point; angle_deg: number; length_px: number } | null
   surface_analysis: Record<string, unknown> | null
+  real_samples?: { samples: DefectSampleInfo[]; class_names: string[]; class_names_sha256: string | null } | null
   algorithm_versions: Record<string, string | null>
 }
 
@@ -145,6 +201,7 @@ export const DEFECT_LABELS: Record<DefectType, string> = {
   contamination: '오염',
   texture: '텍스처 결함',
   patch: '패치 이식',
+  real: '실제 결함',
 }
 
 export const REGION_KIND_LABELS: Record<RegionKind, string> = {
@@ -152,8 +209,8 @@ export const REGION_KIND_LABELS: Record<RegionKind, string> = {
   exclude: '제외 영역',
 }
 
-// The two newer types start off, so the default request stays equivalent to config 1.0.
-const ENABLED_BY_DEFAULT: Record<DefectType, boolean> = { scratch: true, pinhole: true, contamination: true, texture: false, patch: false }
+// The newer types start off, so the default request stays equivalent to config 1.0.
+const ENABLED_BY_DEFAULT: Record<DefectType, boolean> = { scratch: true, pinhole: true, contamination: true, texture: false, patch: false, real: false }
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T
@@ -171,6 +228,7 @@ export function defaultDefectForm(): DefectForm {
     contamination: make('contamination'),
     texture: make('texture'),
     patch: make('patch'),
+    real: make('real'),
   }
 }
 
@@ -333,6 +391,15 @@ export const defectSchemas = {
       blend: z.enum(['source', 'mixed'], { error: '섞는 방식을 선택하세요' }),
     }),
   }),
+  real: z.object({
+    type: z.literal('real'),
+    count: countSchema(L.real.limits.count),
+    params: z.strictObject({
+      scale: rangeSchema(L.real.limits.scale),
+      intensity: rangeSchema(L.real.limits.intensity),
+      rotation: z.enum(['free', 'keep'], { error: '회전 방식을 선택하세요' }),
+    }),
+  }),
 } as const
 
 export const seedSchema = z
@@ -361,9 +428,18 @@ export const generationConfigSchema = z.strictObject({
   edge_margin_px: edgeMarginSchema,
   reference_line: z.strictObject({ start: pointSchema, end: pointSchema }).nullable(),
   defects: z
-    .array(z.discriminatedUnion('type', [defectSchemas.scratch, defectSchemas.pinhole, defectSchemas.contamination, defectSchemas.texture, defectSchemas.patch]))
+    .array(
+      z.discriminatedUnion('type', [
+        defectSchemas.scratch,
+        defectSchemas.pinhole,
+        defectSchemas.contamination,
+        defectSchemas.texture,
+        defectSchemas.patch,
+        defectSchemas.real,
+      ]),
+    )
     .min(1, { error: '결함 유형을 하나 이상 선택하세요' })
-    .max(5),
+    .max(6),
 })
 
 /** Field errors keyed like "scratch.params.length_px", "scratch.params.orientation.jitter_deg", "scratch.count", "seed", "edgeMarginPx", "defects". */

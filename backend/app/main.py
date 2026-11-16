@@ -28,11 +28,14 @@ class GuardMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         settings: Settings = request.app.state.settings
         length = request.headers.get("content-length", "")
-        if length.isdigit() and int(length) > settings.max_upload_bytes + _FORM_OVERHEAD_BYTES:
+        # Source image + the optional real-defect samples; each file is limited again while reading.
+        if length.isdigit() and int(length) > settings.max_upload_bytes + settings.max_defect_sample_bytes + _FORM_OVERHEAD_BYTES:
+            mib = 1024 * 1024
             return error_response(
                 ErrorCode.FILE_TOO_LARGE,
-                f"요청이 너무 큽니다. 이미지는 최대 {settings.max_upload_bytes / (1024 * 1024):g} MiB까지 업로드할 수 있습니다.",
-                {"max_bytes": settings.max_upload_bytes},
+                f"요청이 너무 큽니다. 이미지는 최대 {settings.max_upload_bytes / mib:g} MiB, "
+                f"결함 샘플은 합계 최대 {settings.max_defect_sample_bytes / mib:g} MiB까지 업로드할 수 있습니다.",
+                {"max_bytes": settings.max_upload_bytes, "max_defect_sample_bytes": settings.max_defect_sample_bytes},
             )
         try:
             return await call_next(request)

@@ -36,6 +36,7 @@ class RenderedDefect:
     layers: list[EffectLayer]
     params: dict[str, Any]  # actually-sampled, JSON-serialisable parameters
     center_xy: tuple[float, float]
+    class_id: int | None = None  # overrides the generator's class (real defects keep their sample's class)
 
     @property
     def shape(self) -> tuple[int, int]:

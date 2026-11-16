@@ -17,6 +17,7 @@ const DESCRIPTIONS: Record<DefectType, string> = {
   contamination: '먼지·이물·얼룩 형태의 불규칙 blob',
   texture: '불규칙한 모양 안에 다른 질감을 섞음 (DRAEM 방식)',
   patch: '이미지의 다른 부분을 돌려서 경계 없이 섞어 넣음 (NSA 방식)',
+  real: '올린 실제 결함을 돌리고 크기를 바꿔 옮겨 붙임',
 }
 
 /** Error keys shown next to always-visible controls; any other params error opens "세부 설정". */
@@ -27,6 +28,7 @@ const CORE_ERROR_KEYS = new Set([
   'scratch.params.shading.mode',
   'texture.params.source',
   'patch.params.blend',
+  'real.params.rotation',
 ])
 
 const SO = LIMITS.scratchOptions.limits
@@ -359,12 +361,54 @@ function PatchDetails({ errors }: { errors: FormErrors }) {
   )
 }
 
+// ---------------------------------------------------------------- real defects (config 1.1)
+
+function RealCore() {
+  const [p, set] = useParam('real')
+  const sampleCount = useWorkspaceStore((s) => s.defectSamples.length)
+  const defectCount = useWorkspaceStore((s) => s.sampleAnalysis?.defects.length)
+  const classCount = useWorkspaceStore((s) => s.sampleAnalysis?.classes.length)
+  return (
+    <>
+      <Row label="샘플">
+        <span className={sampleCount ? 'text-ink' : 'text-warn'} data-testid="real-sample-status">
+          {sampleCount ? `${sampleCount}개 · 결함 ${defectCount ?? '…'}개 · 클래스 ${classCount ?? '…'}개` : '없음 — ‘결함 샘플’에서 추가'}
+        </span>
+      </Row>
+      <Segmented
+        label="회전"
+        options={[
+          { value: 'free', label: '자유' },
+          { value: 'keep', label: '원래 방향' },
+        ]}
+        value={p.rotation}
+        onChange={(v) => set('rotation', v)}
+        testId="real-rotation"
+      />
+    </>
+  )
+}
+
+function RealDetails({ errors }: { errors: FormErrors }) {
+  const [p, set] = useParam('real')
+  return (
+    <>
+      <RangeField label="배율" value={p.scale} onChange={(v) => set('scale', v)} error={err(errors, 'real', 'scale')} step={0.05} testId="real-scale" />
+      <RangeField label="강도" value={p.intensity} onChange={(v) => set('intensity', v)} error={err(errors, 'real', 'intensity')} step={0.05} testId="real-intensity" />
+      <p className="text-[11px] leading-relaxed text-faint">
+        샘플 결함이 주변 표면보다 밝거나 어두운 만큼만 옮겨 더합니다. 표면 색·결은 이 이미지 그대로이고, 강도 1이면 샘플과 같은 세기입니다. 결함마다 원래 라벨 클래스를 유지합니다.
+      </p>
+    </>
+  )
+}
+
 const CONTROLS: Record<DefectType, { Core: (props: { errors: FormErrors }) => ReactNode; Details: (props: { errors: FormErrors }) => ReactNode }> = {
   scratch: { Core: ScratchCore, Details: ScratchDetails },
   pinhole: { Core: PinholeCore, Details: PinholeDetails },
   contamination: { Core: ContaminationCore, Details: ContaminationDetails },
   texture: { Core: TextureCore, Details: TextureDetails },
   patch: { Core: PatchCore, Details: PatchDetails },
+  real: { Core: RealCore, Details: RealDetails },
 }
 
 /** One panel per defect type; the title-bar checkbox turns it on/off (like a darktable module). */

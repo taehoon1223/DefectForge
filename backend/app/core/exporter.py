@@ -9,6 +9,8 @@ from typing import IO, Any
 
 from app.core.image_io import SourceImage, encode_png
 from app.core.pipeline import make_sampler
+from app.core.samples import DefectSampleSet
+from app.core.yolo import label_text
 from app.schemas.generation import AnyGenerationConfig
 
 SEED_RULE = "seed_i = base_seed + i  (i = 0 .. sample_count-1, 파일 번호 = i + 1)"
@@ -63,15 +65,38 @@ _V11_README = """
   실제 조명·3D 형상을 복원한 것이 아닙니다.
 """
 
+_YOLO_README = """
+[YOLO 라벨 (config 1.1)]
+labels/image_NNNN.txt         YOLO 세그멘테이션 라벨 (한 줄 = 한 결함 조각: 클래스 x1 y1 x2 y2 …, 0–1 정규화)
+data.yaml                     YOLO 클래스 이름 (names)
+- 마스크와 같은 픽셀에서 만든 외곽선입니다. 구멍은 채워지고, 여러 조각으로 나뉜 결함은 조각마다 한 줄입니다.
+- YOLO 클래스 번호는 마스크 값과 다릅니다(대응표는 manifest.json의 yolo.class_id_to_yolo).
+  실제 결함 샘플의 라벨 클래스는 원래 번호(0부터)를 그대로 쓰고, 규칙 결함은 그 뒤 번호를 씁니다.
+"""
 
-def sample_paths(index: int) -> dict[str, str]:
+_REAL_README = """
+[실제 결함 (config 1.1, 클래스 real:<이름>)]
+결함 샘플 {samples}개 · 샘플 속 결함 {defects}개 · 라벨 클래스 {classes}
+- 올린 결함 이미지에서 라벨 다각형 속 결함이 주변 표면보다 얼마나 밝고 어두운지(차이)만 떼어,
+  돌리고 크기를 바꿔 이 이미지에 더한 것입니다. 표면 색·결은 이 이미지의 것이 유지됩니다.
+- 라벨 클래스 k는 마스크 값 6+k, YOLO 번호 k입니다.
+- 샘플 이미지·라벨 파일의 SHA-256과 결함 수는 manifest.json과 metadata/*.json의 real_samples 필드에,
+  인스턴스마다 쓴 샘플·결함 번호, 라벨 클래스, 배율·회전·강도는 instances[].params에 기록됩니다.
+- 재료로 쓴 실제 결함 이미지는 검사 모델의 평가(test) 데이터에 넣지 마세요. 모델이 그 결함을 외워 점수가 부풀려집니다.
+"""
+
+
+def sample_paths(index: int, yolo: bool = False) -> dict[str, str]:
     stem = f"{index:04d}"
-    return {
+    paths = {
         "image": f"images/image_{stem}.png",
         "class_mask": f"masks/mask_{stem}.png",
         "binary_mask": f"binary_masks/binary_{stem}.png",
         "metadata": f"metadata/image_{stem}.json",
     }
+    if yolo:
+        paths["label"] = f"labels/image_{stem}.txt"  # Ultralytics pairs images/x.png with labels/x.txt
+    return paths
 
 
 def _json_bytes(data: Any) -> bytes:
@@ -84,27 +109,34 @@ def write_dataset_zip(
     sample_count: int,
     out: IO[bytes],
     created_at: datetime | None = None,
+    *,
+    defect_samples: DefectSampleSet | None = None,
 ) -> dict[str, Any]:
     """Generate ``sample_count`` samples (seed = config.seed + i) into ``out``. Returns the manifest.
 
-    Validation and preparation (ROI, areas, surface analysis) run once and are shared by all
-    samples. Samples are generated, encoded and written one at a time so memory stays bounded.
+    Validation and preparation (ROI, areas, surface analysis, real-defect exemplars) run once and
+    are shared by all samples. Samples are generated, encoded and written one at a time so memory
+    stays bounded.
     """
     created = (created_at or datetime.now(timezone.utc)).replace(microsecond=0)
     created_iso = created.isoformat().replace("+00:00", "Z")
-    sampler = make_sampler(source, config)
+    sampler = make_sampler(source, config, defect_samples)
+    yolo = sampler.yolo
     files: list[dict[str, Any]] = []
 
     with zipfile.ZipFile(out, "w") as zf:
         for i in range(sample_count):
             seed = config.seed + i
-            paths = sample_paths(i + 1)
+            paths = sample_paths(i + 1, yolo is not None)
             result = sampler.generate(seed)
             # PNG is already deflate-compressed; store it as-is.
             zf.writestr(paths["image"], encode_png(result.image), compress_type=zipfile.ZIP_STORED)
             zf.writestr(paths["class_mask"], encode_png(result.class_mask), compress_type=zipfile.ZIP_STORED)
             zf.writestr(paths["binary_mask"], encode_png(result.binary_mask), compress_type=zipfile.ZIP_STORED)
             zf.writestr(paths["metadata"], _json_bytes(result.metadata), compress_type=zipfile.ZIP_DEFLATED)
+            if yolo is not None:
+                text = label_text(result.instance_map, result.metadata["instances"], yolo)
+                zf.writestr(paths["label"], text.encode("utf-8"), compress_type=zipfile.ZIP_DEFLATED)
             files.append({"index": i + 1, "seed": seed, **paths, "generated_count": result.metadata["generated_count"]})
             del result
 
@@ -127,6 +159,9 @@ def write_dataset_zip(
             "files": files,
             **sampler.manifest_extra,
         }
+        if yolo is not None:
+            manifest["yolo"] = yolo.manifest()
+            zf.writestr("data.yaml", yolo.data_yaml().encode("utf-8"), compress_type=zipfile.ZIP_DEFLATED)
         zf.writestr("manifest.json", _json_bytes(manifest), compress_type=zipfile.ZIP_DEFLATED)
         readme = _README_TEMPLATE.format(
             class_lines="\n".join(f"  {cid} = {name}" for cid, name in sampler.class_map.items()),
@@ -146,6 +181,15 @@ def write_dataset_zip(
                 excluded=sum(r["kind"] == "exclude" for r in area["regions"]),
                 margin=area["edge_margin_px"],
                 allowed=area["allowed_pixel_count"],
+            )
+        if yolo is not None:
+            readme += _YOLO_README
+        real = sampler.manifest_extra.get("real_samples")
+        if real:
+            readme += _REAL_README.format(
+                samples=len(real["samples"]),
+                defects=sum(s["defect_count"] for s in real["samples"]),
+                classes=", ".join(f"{k} = {name}" for k, name in enumerate(real["class_names"])),
             )
         zf.writestr("README.txt", readme.encode("utf-8"), compress_type=zipfile.ZIP_DEFLATED)
     return manifest

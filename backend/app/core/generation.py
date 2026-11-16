@@ -23,7 +23,7 @@ from app.schemas.generation import GenerationConfig
 
 MAX_PLACEMENT_ATTEMPTS = 100
 
-TYPE_LABELS_KO = {"scratch": "스크래치", "pinhole": "핀홀", "contamination": "오염", "texture": "텍스처 결함", "patch": "패치 이식"}
+TYPE_LABELS_KO = {"scratch": "스크래치", "pinhole": "핀홀", "contamination": "오염", "texture": "텍스처 결함", "patch": "패치 이식", "real": "실제 결함"}
 
 # (defect type, generator, sampled-params model, count) in application order
 PlacementJob = tuple[str, DefectGenerator, Any, int]
@@ -85,14 +85,15 @@ def place_instances(
                 if isinstance(proposal, Rejected):
                     reasons[proposal.reason] += 1
                     continue
-                outcome = canvas.try_apply(proposal, generator.class_id, len(instances) + 1)
+                class_id = generator.class_id if proposal.class_id is None else proposal.class_id
+                outcome = canvas.try_apply(proposal, class_id, len(instances) + 1)
                 if not isinstance(outcome, Applied):
                     reasons[outcome] += 1
                     continue
                 instances.append(
                     {
                         "id": len(instances) + 1,
-                        "class_id": generator.class_id,
+                        "class_id": class_id,
                         "type": defect_type,
                         "bbox_xyxy": outcome.bbox_xyxy,
                         "center_xy": [r4(proposal.center_xy[0]), r4(proposal.center_xy[1])],

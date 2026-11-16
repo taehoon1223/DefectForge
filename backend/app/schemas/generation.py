@@ -13,10 +13,11 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validat
 from app.config import CONFIG_VERSION
 
 Polarity = Literal["dark", "bright", "random"]
-# "texture" and "patch" exist only in config 1.1; config 1.0 accepts the first three.
-DefectType = Literal["scratch", "pinhole", "contamination", "texture", "patch"]
+# "texture", "patch" and "real" exist only in config 1.1; config 1.0 accepts the first three.
+DefectType = Literal["scratch", "pinhole", "contamination", "texture", "patch", "real"]
 TextureSource = Literal["self", "noise"]
 PatchBlend = Literal["source", "mixed"]
+RealRotation = Literal["free", "keep"]
 
 # (min, max) inclusive bounds for every user-tunable value.
 LIMITS: dict[str, dict[str, tuple[float, float]]] = {
@@ -52,6 +53,11 @@ LIMITS: dict[str, dict[str, tuple[float, float]]] = {
         "count": (1, 20),
         "size_px": (8, 200),
         "scale": (0.5, 2.0),
+    },
+    "real": {
+        "count": (1, 20),
+        "scale": (0.5, 2.0),
+        "intensity": (0.3, 2.0),
     },
 }
 
@@ -93,6 +99,12 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         "size_px": [20, 48],
         "scale": [0.8, 1.25],
         "blend": "source",
+    },
+    "real": {
+        "count": 2,
+        "scale": [0.8, 1.25],
+        "intensity": [0.8, 1.2],
+        "rotation": "free",
     },
 }
 
@@ -177,6 +189,15 @@ class PatchParams(_Strict):
     blend: PatchBlend = _default("patch", "blend")
 
 
+class RealParams(_Strict):
+    """A labelled real defect (uploaded image + mask) moved onto the surface (config 1.1 only)."""
+
+    scale: _range("real", "scale") = _default("real", "scale")
+    intensity: _range("real", "intensity") = _default("real", "intensity")
+    # free = any angle 0–360° and maybe mirrored; keep = the sample's own orientation.
+    rotation: RealRotation = _default("real", "rotation")
+
+
 class ScratchDefect(_Strict):
     type: Literal["scratch"]
     count: _count("scratch") = DEFAULTS["scratch"]["count"]
@@ -207,7 +228,13 @@ class PatchDefect(_Strict):
     params: PatchParams = Field(default_factory=PatchParams)
 
 
-DefectSpec = Annotated[Union[ScratchDefect, PinholeDefect, ContaminationDefect], Field(discriminator="type")]
+class RealDefect(_Strict):
+    type: Literal["real"]
+    count: _count("real") = DEFAULTS["real"]["count"]
+    params: RealParams = Field(default_factory=RealParams)
+
+
+DefectSpec =Annotated[Union[ScratchDefect, PinholeDefect, ContaminationDefect], Field(discriminator="type")]
 
 
 def _check_unique_types(defects: list[Any]) -> list[Any]:
@@ -310,7 +337,9 @@ class AdaptiveScratchDefect(_Strict):
     params: AdaptiveScratchParams = Field(default_factory=AdaptiveScratchParams)
 
 
-DefectSpecV11 = Annotated[Union[AdaptiveScratchDefect, PinholeDefect, ContaminationDefect, TextureDefect, PatchDefect], Field(discriminator="type")]
+DefectSpecV11 = Annotated[
+    Union[AdaptiveScratchDefect, PinholeDefect, ContaminationDefect, TextureDefect, PatchDefect, RealDefect], Field(discriminator="type")
+]
 
 
 class GenerationConfigV11(_Strict):
@@ -321,7 +350,7 @@ class GenerationConfigV11(_Strict):
     regions: Annotated[list[RegionSpec], Field(max_length=REGION_MAX_COUNT)] = Field(default_factory=list)
     edge_margin_px: Annotated[float, Field(ge=AREA_LIMITS["edge_margin_px"][0], le=AREA_LIMITS["edge_margin_px"][1])] = AREA_DEFAULTS["edge_margin_px"]
     reference_line: ReferenceLine | None = None
-    defects: Annotated[list[DefectSpecV11], Field(min_length=1, max_length=5)]
+    defects: Annotated[list[DefectSpecV11], Field(min_length=1, max_length=6)]
 
     @field_validator("defects")
     @classmethod
@@ -335,6 +364,10 @@ class GenerationConfigV11(_Strict):
     @property
     def scratch(self) -> AdaptiveScratchDefect | None:
         return next((d for d in self.defects if isinstance(d, AdaptiveScratchDefect)), None)
+
+    @property
+    def uses_real_samples(self) -> bool:
+        return any(isinstance(d, RealDefect) for d in self.defects)
 
 
 AnyGenerationConfig = Union[GenerationConfig, GenerationConfigV11]
@@ -398,6 +431,9 @@ class GenerationMetadataV11(BaseModel):
     area: dict[str, Any] = Field(description="생성·제외 영역, 경계 여유, 허용 영역 픽셀 수와 마스크 해시(재현용)")
     reference_line: dict[str, Any] | None
     surface_analysis: dict[str, Any] | None = Field(description="스크래치 표면 맞춤을 켰을 때의 원본 국소 분석 요약")
+    real_samples: dict[str, Any] | None = Field(
+        default=None, description="‘실제 결함’에 쓴 결함 샘플(이미지·라벨 해시, 결함 수)과 라벨 클래스 이름. 재현용"
+    )
     algorithm_versions: dict[str, str | None]
 
 
@@ -407,6 +443,46 @@ class PreviewResponse(BaseModel):
     binary_mask_png_base64: str
     metadata: Annotated[Union[GenerationMetadata, GenerationMetadataV11], Field(discriminator="version")]
     processing_ms: float = Field(description="서버 처리 시간(ms). 재현성 대상이 아님")
+
+
+class DefectSampleInfo(BaseModel):
+    index: int
+    width: int
+    height: int
+    image_sha256: str
+    label_sha256: str
+    defect_count: int = Field(description="라벨의 결함 수 (한 줄 = 하나, 샘플당 큰 순서로 최대 32개)")
+    class_counts: dict[str, int] = Field(description="라벨 클래스 번호별 결함 수")
+
+
+class DefectClassInfo(BaseModel):
+    id: int = Field(description="라벨(YOLO) 클래스 번호. 생성 결과의 클래스 마스크 값은 6 + id")
+    name: str
+    defect_count: int
+
+
+class MeasuredDefect(BaseModel):
+    sample_index: int
+    defect_index: int
+    class_id: int = Field(description="라벨(YOLO) 클래스 번호")
+    label_line: int = Field(description="라벨 파일의 줄 번호")
+    bbox_xyxy: list[int]
+    area_px: int
+    length_px: float = Field(description="주축 방향 길이")
+    width_px: float = Field(description="면적 ÷ 길이 (평균 폭)")
+    angle_deg: float = Field(description="주축 방향 0–180° (x축 기준, y는 아래쪽)")
+    radius_px: float = Field(description="같은 면적의 원 반지름")
+    polarity: Literal["dark", "bright"]
+    contrast: float = Field(description="배경 대비 검정/흰색 쪽 변화 비율의 상위 10% 값 (스크래치·핀홀 대비)")
+    opacity: float = Field(description="오염 색(어두운 쪽 luma 50, 밝은 쪽 240) 쪽 변화 비율의 상위 10% 값")
+
+
+class DefectSampleAnalysis(BaseModel):
+    samples: list[DefectSampleInfo]
+    classes: list[DefectClassInfo]
+    defects: list[MeasuredDefect]
+    suggestions: dict[str, dict[str, Any]] = Field(description="scratch/pinhole/contamination 파라미터 중 측정한 항목의 제안값. 나머지 항목은 들어 있지 않음")
+    fitted_from: dict[str, int] = Field(description="유형별로 맞출 때 쓴 결함 수. 길쭉한 결함(길이 ≥ 3×폭)은 스크래치, 나머지는 핀홀·오염 (한쪽이 없으면 전체)")
 
 
 class ErrorDetail(BaseModel):

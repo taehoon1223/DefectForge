@@ -8,6 +8,7 @@
     "acceptedMimeTypes": ["image/png", "image/jpeg", "image/webp"],
     "acceptedExtensions": [".png", ".jpg", ".jpeg", ".webp"]
   },
+  "defectSamples": { "maxCount": 8, "maxTotalBytes": 20971520, "minDim": 8 },
   "roiMaxPoints": 256,
   "area": {
     "regionMaxCount": 32,
@@ -107,6 +108,19 @@
         "size_px": [20, 48],
         "scale": [0.8, 1.25],
         "blend": "source"
+      }
+    },
+    "real": {
+      "limits": {
+        "count": [1, 20],
+        "scale": [0.5, 2.0],
+        "intensity": [0.3, 2.0]
+      },
+      "defaults": {
+        "count": 2,
+        "scale": [0.8, 1.25],
+        "intensity": [0.8, 1.2],
+        "rotation": "free"
       }
     }
   }

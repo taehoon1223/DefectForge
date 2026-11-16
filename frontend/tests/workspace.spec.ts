@@ -4,6 +4,11 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 const SAMPLE = path.resolve(import.meta.dirname, '../public/samples/brushed_metal_512x448.png')
+// Synthetic labelled sample: a crop of the sample above with a drawn dark scratch (class 0, 80×3 px, 30°) and a
+// bright spot (class 1, r 5), labelled as YOLO segmentation polygons; classes.txt names them line_mark / dot.
+const DEFECT_IMAGE = path.resolve(import.meta.dirname, 'fixtures/defect_sample.png')
+const DEFECT_LABEL = path.resolve(import.meta.dirname, 'fixtures/defect_sample.txt')
+const CLASS_NAMES = path.resolve(import.meta.dirname, 'fixtures/classes.txt')
 
 async function upload(page: Page) {
   await page.goto('/')
@@ -172,6 +177,55 @@ test('텍스처 결함·패치 이식을 켜면 클래스 4·5로 함께 생성�
   await expect(page.getByTestId('legend-count-texture')).toHaveText(`${meta.class_pixel_counts.texture.toLocaleString('en-US')} px`)
 })
 
+test('YOLO 라벨 샘플로 스크래치 크기·대비를 맞추고, 실제 결함을 라벨 클래스별(6, 7)로 옮겨 붙인다', async ({ page }) => {
+  await upload(page)
+  await page.getByTestId('enable-real').check()
+  await expect(page.getByTestId('real-sample-status')).toContainText('없음')
+  await expect(page.getByTestId('generate')).toBeDisabled()
+
+  await page.getByRole('button', { name: '결함 샘플 펼치기' }).click()
+  await page.getByTestId('class-names-input').setInputFiles(CLASS_NAMES)
+  await expect(page.getByTestId('class-names-name')).toHaveText('classes.txt')
+  await page.getByTestId('sample-image-input').setInputFiles(DEFECT_IMAGE)
+  await page.getByTestId('sample-label-input').setInputFiles(DEFECT_LABEL)
+  const [analyzed] = await Promise.all([
+    page.waitForResponse((r) => r.url().endsWith('/api/v1/defect-samples/analyze')),
+    page.getByTestId('sample-add').click(),
+  ])
+  expect(analyzed.status()).toBe(200)
+  const { suggestions } = await analyzed.json()
+  await expect(page.getByTestId('sample-item')).toHaveCount(1)
+  await expect(page.getByTestId('sample-defects-0')).toHaveText('결함 2')
+  await expect(page.getByTestId('sample-classes')).toContainText('line_mark')
+  await expect(page.getByTestId('real-sample-status')).toHaveText('1개 · 결함 2개 · 클래스 2개')
+
+  await page.getByTestId('fit-scratch').click()
+  await page.getByTestId('details-scratch').click()
+  await expect(page.getByTestId('scratch-length-min')).toHaveValue(String(suggestions.scratch.length_px[0]))
+  await expect(page.getByTestId('scratch-width-max')).toHaveValue(String(suggestions.scratch.width_px[1]))
+  await expect(page.getByTestId('scratch-polarity-dark')).toHaveAttribute('aria-pressed', 'true') // fitted to the dark scratch only, not the bright spot
+  await expect(page.getByTestId('sample-summary')).toContainText('(1개 / 1개)')
+
+  await page.getByTestId('count-real').fill('6')
+  const response = await generate(page)
+  expect(response.status()).toBe(200)
+  const meta = (await response.json()).metadata
+  expect(meta.class_map).toMatchObject({ '6': 'real:line_mark', '7': 'real:dot' })
+  const real = meta.instances.filter((i: { type: string }) => i.type === 'real')
+  expect(real).toHaveLength(6)
+  for (const inst of real) expect(inst.class_id).toBe(6 + inst.params.label_class)
+  expect(meta.real_samples.class_names).toEqual(['line_mark', 'dot'])
+  await expect(page.getByTestId('legend-count-real-1')).toHaveText(`${meta.class_pixel_counts['real:dot'].toLocaleString('en-US')} px`)
+
+  // The dataset carries YOLO labels with the sample's own class numbers first.
+  const { files } = await download(page)
+  const manifest = JSON.parse(strFromU8(files['manifest.json']))
+  expect(manifest.yolo.names).toMatchObject({ '0': 'line_mark', '1': 'dot', '2': 'scratch' })
+  expect(strFromU8(files['data.yaml'])).toContain('0: "line_mark"')
+  const labelClasses = new Set(strFromU8(files['labels/image_0001.txt']).trim().split('\n').map((l) => l.split(' ')[0]))
+  expect([...labelClasses].every((c) => ['0', '1', '2', '3', '4'].includes(c))).toBe(true)
+})
+
 test('데이터셋 ZIP N=10: 이미지·클래스 마스크·바이너리 마스크·메타데이터가 1:1로 대응', async ({ page }) => {
   await upload(page)
   await page.getByTestId('seed-input').fill('100')
@@ -187,8 +241,10 @@ test('데이터셋 ZIP N=10: 이미지·클래스 마스크·바이너리 마스
   expect(folder('masks/')).toEqual(expected.map((n) => `masks/mask_${n}.png`))
   expect(folder('binary_masks/')).toEqual(expected.map((n) => `binary_masks/binary_${n}.png`))
   expect(folder('metadata/')).toEqual(expected.map((n) => `metadata/image_${n}.json`))
+  expect(folder('labels/')).toEqual(expected.map((n) => `labels/image_${n}.txt`)) // YOLO segmentation labels
   expect(names).toContain('manifest.json')
   expect(names).toContain('README.txt')
+  expect(names).toContain('data.yaml')
 
   const manifest = JSON.parse(strFromU8(files['manifest.json']))
   expect(manifest.sample_count).toBe(10)

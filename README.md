@@ -1,12 +1,13 @@
 # DefectForge
 
-정상 표면 이미지에 **합성 결함(scratch · pinhole · contamination · texture · patch)** 을 넣고, 합성 이미지와 **픽셀 단위로 정확히 정합되는 Segmentation 마스크**를 함께 만들어 데이터셋 ZIP으로 내려받는 로컬 웹 워크벤치입니다. GPU·DB·로그인 없이 동작합니다.
+정상 표면 이미지에 **합성 결함(scratch · pinhole · contamination · texture · patch)과 올린 실제 결함(real)** 을 넣고, 합성 이미지와 **픽셀 단위로 정확히 정합되는 Segmentation 마스크**를 함께 만들어 데이터셋 ZIP으로 내려받는 로컬 웹 워크벤치입니다. GPU·DB·로그인 없이 동작합니다.
 
 한 화면에서 이미지 → (선택) 영역 → 결함 → 생성 순서로 씁니다. 영역을 그리지 않으면 이미지 전체에 생성하고, 자주 바꾸지 않는 값은 `세부 설정`·`고급 설정`에 접혀 있어 기본값 그대로 바로 생성할 수 있습니다.
 - **생성 영역 / 제외 영역**: 결함을 넣을 곳을 다각형 여러 개로 지정하고, 그 안에서 뺄 곳을 제외 영역으로 지정합니다. 모든 결함 유형에 적용됩니다.
 - **스크래치 방향**: 무작위 / 사용자가 그린 기준선에 평행·수직 / 지정 각도.
 - **표면 밝기에 맞추기**: 스크래치를 원본의 주변 표면 색·밝기에 맞춘 톤으로 그립니다.
 - **텍스처 결함 · 패치 이식**: 이상 탐지 연구에서 널리 쓰는 합성 방식을 다시 구현했습니다. 텍스처 결함은 DRAEM 방식(불규칙한 펄린 노이즈 모양 안에 다른 질감)이고, 패치 이식은 NSA 방식(이미지의 다른 부분을 돌려 포아송 블렌딩으로 이음매 없이 붙임)입니다. 기본은 꺼져 있습니다.
+- **결함 샘플 (학습 모델 없음)**: 실제 결함 이미지와 마스크 PNG를 올리면 마스크 속 결함마다 길이·폭·방향·크기·대비를 잽니다. 그 값으로 스크래치·핀홀·오염의 크기·대비·극성을 채우거나(`규칙 맞추기`), 결함이 주변 표면보다 밝고 어두운 만큼만 떼어 돌리고 크기를 바꿔 새 이미지에 옮겨 붙입니다(`실제 결함`, 클래스 6). 기본은 꺼져 있습니다.
 
 ![작업 화면: 생성 영역(제외 영역 포함) 안에 합성된 결함과 마스크 오버레이](docs/images/workspace_overlay.png)
 
@@ -18,7 +19,8 @@
 
 - **이미지 업로드**: PNG / JPEG / WebP, 드래그 앤 드롭 또는 파일 선택, 최대 10 MiB, 각 변 32–2048 px. 서버는 확장자가 아니라 실제 디코딩으로 판별하고 EXIF 회전 적용, RGB 8-bit로 정규화(알파는 흰 배경에 합성).
 - **영역 편집**: 기본은 이미지 전체. `+ 생성 영역`(`P`) / `+ 제외 영역`으로 다각형을 여러 개 그리고, 선택·이름 변경·꼭짓점 드래그·변 중앙 클릭으로 점 삽입·우클릭으로 점 삭제·삭제. 확대·축소(휠, 포인터 기준)·팬과 무관하게 **원본 픽셀 좌표**로 저장됩니다. 자기 교차·면적 0 등은 즉시 안내.
-- **결함 5종**: 스크래치·핀홀·오염과 텍스처 결함·패치 이식. 유형별 활성화와 개수, 극성(텍스처는 질감 출처, 패치는 섞는 방식)은 바로 보이고 크기·대비 등은 `세부 설정`에 있습니다. 스크래치는 방향(무작위 / 기준선에 평행·수직 / 각도 지정)과 `표면 밝기에 맞추기`를 고를 수 있습니다. 공통으로 Seed, `고급 설정`(겹침 허용, 경계 여유 거리).
+- **결함 샘플**: 결함 이미지 + 마스크 PNG를 최대 8쌍 올립니다. 서버가 검사·측정한 뒤 목록에 추가되고, `규칙 맞추기`의 스크래치·핀홀·오염 버튼으로 그 유형의 크기·대비·극성을 샘플 결함에 맞춥니다(길쭉한 결함 → 스크래치, 나머지 → 핀홀·오염).
+- **결함 6종**: 스크래치·핀홀·오염, 텍스처 결함·패치 이식, 실제 결함(올린 샘플). 유형별 활성화와 개수, 극성(텍스처는 질감 출처, 패치는 섞는 방식, 실제 결함은 회전)은 바로 보이고 크기·대비 등은 `세부 설정`에 있습니다. 스크래치는 방향(무작위 / 기준선에 평행·수직 / 각도 지정)과 `표면 밝기에 맞추기`를 고를 수 있습니다. 공통으로 Seed, `고급 설정`(겹침 허용, 경계 여유 거리).
 - **미리보기**: 원본 / 합성 / 마스크 오버레이 / 클래스 마스크 보기, 오버레이 불투명도(시각화 전용), 원본·출력 크기, 실제 생성 개수, 클래스별 픽셀 수, 인스턴스 bbox, 처리 시간. 설정을 바꾸면 `설정 변경됨`으로 이전 결과임을 표시.
 - **재현성**: 같은 이미지 + 같은 설정 + 같은 Seed → 이미지·마스크 PNG 바이트까지 동일.
 - **데이터셋 ZIP**: 1–20장, i번째 샘플 seed = `seed + i`. 이미지 / 클래스 마스크 / 바이너리 마스크 / 샘플별 JSON + `manifest.json` + `README.txt`.
@@ -67,10 +69,11 @@ npm run dev
 
 1. 왼쪽 패널에 정상 이미지를 끌어다 놓거나 클릭해서 올립니다. 바로 써 볼 이미지가 없으면 `frontend/public/samples/`의 합성 예시 이미지(금속 표면, 칩 부품)를 쓰면 됩니다.
 2. (선택) **영역**에서 `+ 생성 영역`(`P`)으로 결함을 넣을 곳을, `+ 제외 영역`으로 그 안에서 뺄 곳을 그립니다. 클릭으로 점 추가 → 첫 점 클릭 / 더블클릭 / `Enter`로 닫기, `Backspace` 마지막 점 삭제, `Esc` 취소, `Space`+드래그로 이동. 그리지 않으면 이미지 전체를 사용합니다. 그린 영역은 목록이나 캔버스에서 선택해 이름을 바꾸고 꼭짓점을 고칠 수 있습니다.
-3. **결함**에서 유형·개수·극성을 고릅니다. 스크래치는 **방향**과 **표면 밝기에 맞추기**도 고를 수 있습니다. `기준선`을 고르면 `기준선 그리기`를 누르고 이미지에서 두 점(예: 부품의 긴 방향)을 찍은 뒤 `평행`/`수직`을 고릅니다. 크기·대비 등은 `세부 설정`에 있습니다.
-4. Seed를 정하고 왼쪽 아래에 고정된 **생성 미리보기**를 누릅니다. 생성이 막히면 버튼 아래에 이유가 표시됩니다. 옆의 `기본값`은 결함·생성 설정을 처음 값으로 되돌립니다(Seed 유지).
-5. 상단 탭으로 보기 모드를 바꾸고, 오른쪽에서 결과(생성 개수, 크기, 생성 범위)와 범례를 확인합니다. `상세 정보`에 허용 픽셀·방향·인스턴스 bbox가 있습니다. 캔버스의 `영역 숨기기`는 표시만 끕니다.
-6. 오른쪽 **데이터셋 내보내기**에서 장수(1–20)를 정하고 하단 **데이터셋 다운로드**를 누릅니다.
+3. (선택) **결함 샘플**을 펼쳐 결함 이미지와 마스크 PNG(같은 크기, 배경 0 · 결함은 0이 아닌 값)를 고르고 `샘플 추가`를 누릅니다. `규칙 맞추기`의 버튼으로 해당 결함의 크기·대비·극성을 샘플에 맞추거나, 결함 목록에서 `실제 결함`을 켜서 샘플 결함을 옮겨 붙입니다.
+4. **결함**에서 유형·개수·극성을 고릅니다. 스크래치는 **방향**과 **표면 밝기에 맞추기**도 고를 수 있습니다. `기준선`을 고르면 `기준선 그리기`를 누르고 이미지에서 두 점(예: 부품의 긴 방향)을 찍은 뒤 `평행`/`수직`을 고릅니다. 크기·대비 등은 `세부 설정`에 있습니다.
+5. Seed를 정하고 왼쪽 아래에 고정된 **생성 미리보기**를 누릅니다. 생성이 막히면 버튼 아래에 이유가 표시됩니다. 옆의 `기본값`은 결함·생성 설정을 처음 값으로 되돌립니다(Seed 유지).
+6. 상단 탭으로 보기 모드를 바꾸고, 오른쪽에서 결과(생성 개수, 크기, 생성 범위)와 범례를 확인합니다. `상세 정보`에 허용 픽셀·방향·인스턴스 bbox가 있습니다. 캔버스의 `영역 숨기기`는 표시만 끕니다.
+7. 오른쪽 **데이터셋 내보내기**에서 장수(1–20)를 정하고 하단 **데이터셋 다운로드**를 누릅니다.
 
 ## 영역과 스크래치 옵션 (config 1.1)
 
@@ -106,9 +109,9 @@ npx playwright test
 
 | 스위트 | 결과 |
 | --- | --- |
-| `pytest -q` (백엔드 단위·API 통합·계약·1.0 회귀) | **232 passed** (config 1.1 관련 92개 포함) |
-| `npm run test` (Vitest + React Testing Library) | **62 passed** (7 files) |
-| `npx playwright test` (Chromium, 작업 화면 7 + 모바일 2 + 영역·기준선 3) | **12 passed** |
+| `pytest -q` (백엔드 단위·API 통합·계약·1.0 회귀) | **256 passed** (config 1.1 관련 116개 포함) |
+| `npm run test` (Vitest + React Testing Library) | **69 passed** (8 files) |
+| `npx playwright test` (Chromium, 작업 화면 8 + 모바일 2 + 영역·기준선 3) | **13 passed** |
 | `npm run typecheck` / `npm run lint` / `npm run build` | 오류·린트 경고 0, 빌드 성공 |
 
 `tests/test_regression_v1.py`는 config 1.1을 추가하기 전 코드에서 계산한 config 1.0 결과(PNG·메타데이터·HTTP 응답)의 해시를 고정해, 1.0이 비트 단위로 바뀌지 않았음을 확인합니다. 같은 해시로 "1.0과 같은 설정의 1.1 요청"도 같은 픽셀을 내는지 확인합니다.
@@ -127,7 +130,7 @@ E2E는 목업 없이 실제 백엔드에 요청합니다. Playwright가 `backend
 | T06 다른 Seed → 위치/형태 다름 | `test_generation.py::test_different_seeds_differ` |
 | T07 이미지·마스크 크기 일치 | `test_masks.py`(PNG 디코드 후 비교), E2E(ZIP PNG 헤더) |
 | T08 `binary == any(diff)*255` | `test_masks.py`, `test_api.py`, `test_export.py`, 무작위 설정 25종 |
-| T09 `binary==0`이면 `class==0`, 범위 0..3 (1.1은 0..5) | 위와 동일 (+ `class>0 ⇔ binary==255`까지 검증) |
+| T09 `binary==0`이면 `class==0`, 범위 0..3 (1.1은 0..6) | 위와 동일 (+ `class>0 ⇔ binary==255`까지 검증) |
 | T10 요청 개수 = 생성 개수 또는 명시적 422 | `test_generation.py`(80개 생성, 배치 불가 시 422) |
 | T11 ZIP N=1/10/20 | `test_export.py`(구조·1:1 매칭·manifest·seed 규약·임시 파일 삭제), E2E(N=10 다운로드) |
 | T12 10 MiB 초과, 2048 px 초과, 빈 ROI, 잘못된 파라미터 거절 | `test_api.py`, `test_image_io.py`, `test_roi.py`, Vitest, E2E |
@@ -153,6 +156,7 @@ E2E는 목업 없이 실제 백엔드에 요청합니다. Playwright가 `backend
 | 이미지 교체 시 오래된 상태·응답 폐기, 쓰지 않는 기준선은 결과를 '변경됨'으로 만들지 않음 | Vitest(`areas.test.ts`), E2E |
 | 확대·팬 후 영역·기준선 좌표 정확(≤1px), 실제 UI의 영역 지정 → 생성 → ZIP | E2E(`tests/regions.spec.ts`) |
 | 텍스처 결함·패치 이식: 마스크 규약, 허용 영역, 같은 Seed 재현, 패치가 타원 밖을 건드리지 않음, 평탄면 패치는 명시적 실패, 1.0에서는 거절 | `test_v11_texture_patch.py`, E2E |
+| 결함 샘플·실제 결함: 그린 결함의 길이·폭·각도·반지름·대비 측정, 길쭉한 결함 → 스크래치·나머지 → 핀홀·오염 맞춤, 마스크 규칙(PNG만, 크기 일치, 빈·반전 마스크 거절, 클래스 번호·투명 배경·색 마스크 허용), 마스크 규약·허용 영역, `원래 방향`·배율 1이면 보간 없이 그대로 복사, 강도에 비례한 변화, 같은 Seed 재현, 샘플 없으면 422, 개수·합계 크기 제한, ZIP 기록 | `test_v11_real_samples.py`, `defectSamples.test.ts`, E2E |
 
 > 위 검증은 모두 **절차적 합성 이미지**(`backend/scripts/synthetic_part.py`의 칩 부품 형태 fixture, 텍스처 표면)로 수행했습니다. 실제 부품·NG 이미지로는 검증하지 않았으므로, 실제 결함과의 유사성이나 검사 성능 향상은 검증된 사항이 아닙니다.
 
@@ -185,6 +189,8 @@ python scripts/benchmark_regions.py --runs 20 --zip-runs 5 --zip-count 10   # co
 
 1.1 `/preview` 한 번의 서버 처리 시간은 대략 영역 계산 + 분석 + 미리보기 처리입니다. 두 경우 모두 시간의 대부분은 PNG 인코딩입니다.
 
+**결함 샘플** (같은 날·같은 PC, 저장소에 없는 별도 측정): 2048×2048 샘플(결함 32개, 마스크 0.7%) 한 장의 디코딩·배경 추정·추출이 **274 ms**(요청마다 샘플당 1회), 그 샘플로 1024×1024 이미지에 실제 결함 4개를 합성하는 데 **16.9 ms**(중앙값)입니다.
+
 ## API
 
 모든 경로는 `/api/v1` 아래에 있고, 오류는 항상 `{"error": {"code", "message", "details"}}` 형식입니다.
@@ -192,8 +198,9 @@ python scripts/benchmark_regions.py --runs 20 --zip-runs 5 --zip-count 10   # co
 | 메서드·경로 | 입력 | 출력 |
 | --- | --- | --- |
 | `GET /api/v1/health` | – | `{"status":"ok","version":"1.2.0"}` |
-| `POST /api/v1/preview` | multipart: `file`, `config`(JSON 문자열, `version` "1.0" 또는 "1.1") | `image_png_base64`, `class_mask_png_base64`, `binary_mask_png_base64`(data URI 접두어 없음), `metadata`, `processing_ms` |
-| `POST /api/v1/export` | multipart: `file`, `config`, `sample_count`(1–20) | `application/zip` (`defectforge_dataset.zip`) |
+| `POST /api/v1/preview` | multipart: `file`, `config`(JSON 문자열, `version` "1.0" 또는 "1.1"), (선택) `defect_images`·`defect_masks` 여러 개(config 1.1에 `real`이 있을 때만 읽음) | `image_png_base64`, `class_mask_png_base64`, `binary_mask_png_base64`(data URI 접두어 없음), `metadata`, `processing_ms` |
+| `POST /api/v1/export` | multipart: `file`, `config`, `sample_count`(1–20), (선택) `defect_images`·`defect_masks` | `application/zip` (`defectforge_dataset.zip`) |
+| `POST /api/v1/defect-samples/analyze` | multipart: `defect_images`·`defect_masks`(같은 순서로 1–8쌍, 합계 20 MiB) | `samples`(샘플별 해시·결함 수), `defects`(결함별 측정값), `suggestions`(scratch/pinhole/contamination 제안값), `fitted_from` |
 
 ```bash
 # 저장소 루트에서
@@ -212,16 +219,22 @@ curl -s -X POST http://127.0.0.1:8000/api/v1/export \
 curl -s -X POST http://127.0.0.1:8000/api/v1/preview \
   -F "file=@frontend/public/samples/part_synthetic_640x400.png" \
   -F "config=<examples/configs/regions_scratch.json"
+
+# 결함 샘플 측정 (E2E용 합성 샘플)
+curl -s -X POST http://127.0.0.1:8000/api/v1/defect-samples/analyze \
+  -F "defect_images=@frontend/tests/fixtures/defect_sample.png" \
+  -F "defect_masks=@frontend/tests/fixtures/defect_sample_mask.png"
 ```
 
 | HTTP | 코드 | 상황 |
 | --- | --- | --- |
 | 400 | `MISSING_FIELD`, `INVALID_JSON`, `BAD_REQUEST` | 필수 필드 누락, config JSON 문법 오류, 본문 해석 불가 |
-| 413 | `FILE_TOO_LARGE` | 업로드 10 MiB 초과 |
+| 413 | `FILE_TOO_LARGE` | 업로드 10 MiB 초과, 결함 샘플 합계 20 MiB 초과 |
 | 422 | `INVALID_IMAGE`, `UNSUPPORTED_IMAGE_FORMAT`, `IMAGE_DIMENSIONS_OUT_OF_RANGE` | 디코딩 불가, PNG/JPEG/WebP 아님(16비트 포함), 크기 범위 밖 |
 | 422 | `INVALID_CONFIG`, `INVALID_ROI`, `INVALID_SAMPLE_COUNT` | 파라미터·ROI·장수 오류 (`details.errors`에 필드별 한국어 메시지) |
 | 422 | `DEFECT_PLACEMENT_FAILED` | 100회 시도해도 배치 불가 (`details.rejections`에 원인별 횟수) |
 | 422 | `INVALID_REGION`, `INVALID_REFERENCE_LINE`, `EMPTY_ALLOWED_AREA` | (1.1) 영역 다각형·ID 중복, 기준선 누락·범위·길이, 허용 영역이 비어 있음(`details`에 단계별 픽셀 수) |
+| 422 | `INVALID_DEFECT_SAMPLE` | (1.1) 결함 샘플: 이미지·마스크 개수 불일치, 8쌍 초과, 마스크가 PNG가 아님·크기 다름·결함 없음·50% 넘게 덮음, `real`인데 샘플 없음 (메시지에 샘플 번호) |
 | 429 | `SERVER_BUSY` | 동시 생성 작업 상한 초과 |
 | 500 | `INTERNAL_ERROR` | 서버 내부 오류 (경로·트레이스 비노출) |
 
@@ -284,11 +297,12 @@ curl -s -X POST http://127.0.0.1:8000/api/v1/preview \
 | `regions[]` | 0–32개 · 없음(= 이미지 전체). `id`(영문·숫자·`_`·`-`, 1–64자, 고유), `name`(표시용 1–40자, 결과에 영향 없음), `kind` = `include`(생성 영역) \| `exclude`(제외 영역), `polygon`(1.0 ROI와 같은 규칙) |
 | `edge_margin_px` | 0–50 · 0. 허용 영역 경계(이미지 경계 포함)에서 이 거리 이하인 픽셀에는 결함을 두지 않음 |
 | `reference_line` | 두 점(원본 픽셀 정수), 4px 이상 · `null`. 스크래치 방향이 `parallel`/`perpendicular`일 때만 필요 |
-| `defects[]` | 1–5개. 1.0의 세 유형 + `texture`·`patch`(1.1 전용, 아래). 스크래치 `params`에는 아래 두 항목이 추가됨 |
+| `defects[]` | 1–6개. 1.0의 세 유형 + `texture`·`patch`·`real`(1.1 전용, 아래). 스크래치 `params`에는 아래 두 항목이 추가됨 |
 | `scratch.params.orientation` | `mode` = `random`(기본, `angle_deg` 범위 사용 = 1.0) · `parallel` · `perpendicular` · `absolute`, `angle_deg` 0–180 · 0(absolute용), `jitter_deg` 0–45 · 5(random 외) |
 | `scratch.params.shading` | `mode` = `fixed`(기본, 1.0 외관) · `local`(표면 밝기 맞춤), `window_sigma_px` 2–32 · 6, `min_texture_ratio` 0–4 · 1.0 |
 | `texture` (클래스 4) | `count` 1–20 · 2, `radius_px` 4–120 · [12,32], `opacity` 0.1–1 · [0.5,0.9], `roughness` 0–1 · 0.5, `source` = `self`(같은 이미지의 다른 곳, 기본) · `noise` |
 | `patch` (클래스 5) | `count` 1–20 · 2, `size_px` 8–200 · [20,48], `scale` 0.5–2 · [0.8,1.25], `blend` = `source`(패치 결 유지, 기본) · `mixed`(표면과 섞기) |
+| `real` (클래스 6) | `count` 1–20 · 2, `scale` 0.5–2 · [0.8,1.25], `intensity` 0.3–2 · [0.8,1.2](샘플 결함의 밝기 차이에 곱하는 배수), `rotation` = `free`(0–360° + 좌우 반전, 기본) · `keep`(샘플 방향 그대로). 요청에 결함 샘플이 필요 |
 
 각도는 원본 이미지 좌표(x 오른쪽, y 아래) 기준 [0, 180)°입니다. `contrast`는 `local`에서 "국소 명암 여유 대비 비율", `fixed`에서 "검정/흰색으로 섞는 비율"입니다.
 
@@ -305,10 +319,10 @@ defectforge_dataset.zip
 ```
 
 - 같은 번호(0001부터)끼리 1:1 대응합니다. i번째 샘플(0부터)의 seed = `base_seed + i`.
-- **클래스 값**: `0 = background`, `1 = scratch`, `2 = pinhole`, `3 = contamination`, (config 1.1만) `4 = texture`, `5 = patch`. 팔레트 PNG가 아니라 회색조 값 자체가 클래스 ID라 일반 뷰어에서는 거의 검게 보입니다.
-- **마스크 의미**: 합성으로 **실제 RGB 값이 바뀐 픽셀**. `binary_mask == any(image != 원본) * 255`가 항상 성립하고, `binary_mask == 0`인 곳의 `class_mask`는 0, 그 외는 1–3(1.1은 1–5)입니다. ROI 밖 픽셀은 원본과 완전히 같습니다.
+- **클래스 값**: `0 = background`, `1 = scratch`, `2 = pinhole`, `3 = contamination`, (config 1.1만) `4 = texture`, `5 = patch`, `6 = real`. 팔레트 PNG가 아니라 회색조 값 자체가 클래스 ID라 일반 뷰어에서는 거의 검게 보입니다.
+- **마스크 의미**: 합성으로 **실제 RGB 값이 바뀐 픽셀**. `binary_mask == any(image != 원본) * 255`가 항상 성립하고, `binary_mask == 0`인 곳의 `class_mask`는 0, 그 외는 1–3(1.1은 1–6)입니다. ROI 밖 픽셀은 원본과 완전히 같습니다.
 - **metadata 주요 필드**: `seed`, `source_sha256`(업로드 원본 바이트), `width`, `height`, `class_map`, `roi`, `roi_pixel_count`, `requested_count`, `generated_count`, `changed_pixel_count`, `class_pixel_counts`, `config`, 그리고 `instances[]` — 인스턴스별 `type`, `class_id`, `bbox_xyxy`(포함 픽셀 인덱스), `center_xy`, `changed_pixel_count`, `attempts`, 실제 샘플링된 `params`(길이·폭·각도·대비·극성·반지름·색 등).
-- **config 1.1** metadata에는 1.0의 `roi`·`roi_pixel_count` 대신 다음이 들어갑니다(샘플별 metadata와 `manifest.json` 모두): `area`(영역별 다각형·픽셀 수·마스크 SHA-256, 순서 무관 기하 해시, 이미지 전체 여부, 생성·제외·허용 픽셀 수와 허용 영역 마스크 SHA-256, 경계 여유, 래스터화·여유 규칙), `reference_line`(점·각도·길이), `surface_analysis`(표면 맞춤 시 대체·포화·평탄 비율과 전역 통계), `algorithm_versions`. 스크래치 인스턴스 `params`에는 방향 모드, 실제 각도(기준·오프셋), 경계까지 최소 거리, 표면 맞춤 시 지지 영역의 국소 색·밝기·표준편차·명암 여유·ΔL 평균/최대·텍스처 하한·대체 비율이 기록됩니다.
+- **config 1.1** metadata에는 1.0의 `roi`·`roi_pixel_count` 대신 다음이 들어갑니다(샘플별 metadata와 `manifest.json` 모두): `area`(영역별 다각형·픽셀 수·마스크 SHA-256, 순서 무관 기하 해시, 이미지 전체 여부, 생성·제외·허용 픽셀 수와 허용 영역 마스크 SHA-256, 경계 여유, 래스터화·여유 규칙), `reference_line`(점·각도·길이), `surface_analysis`(표면 맞춤 시 대체·포화·평탄 비율과 전역 통계), `real_samples`(실제 결함을 쓸 때 샘플별 이미지·마스크 SHA-256, 크기, 결함 수), `algorithm_versions`. 실제 결함 인스턴스 `params`에는 샘플·결함 번호(0부터), 배율, 회전 방식·각도, 반전 여부, 강도가 기록됩니다. 스크래치 인스턴스 `params`에는 방향 모드, 실제 각도(기준·오프셋), 경계까지 최소 거리, 표면 맞춤 시 지지 영역의 국소 색·밝기·표준편차·명암 여유·ΔL 평균/최대·텍스처 하한·대체 비율이 기록됩니다.
 
 ## 환경 변수
 
@@ -319,6 +333,7 @@ defectforge_dataset.zip
 | backend | `MAX_IMAGE_DIM` | `2048` |
 | backend | `MAX_EXPORT_COUNT` | `20` |
 | backend | `MAX_CONCURRENT_JOBS` / `JOB_WAIT_SECONDS` | `2` / `15` |
+| backend | `MAX_DEFECT_SAMPLES` / `MAX_DEFECT_SAMPLE_MIB` | `8` / `20` (요청당 결함 샘플 쌍 수 / 합계 크기) |
 | backend | `EXPORT_TMP_DIR` | OS 임시 폴더 (32 MiB 넘는 ZIP만 디스크 사용, 자동 삭제) |
 | frontend | `VITE_API_BASE_URL` | `http://127.0.0.1:8000` |
 
@@ -329,7 +344,7 @@ backend/
   app/main.py                FastAPI 앱 팩토리, CORS, 요청 크기 가드, 500 처리
   app/config.py              환경 변수 설정
   app/error_codes.py         오류 코드·HTTP 상태 단일 정의
-  app/api/routes.py          /health, /preview, /export, 동시성 제한
+  app/api/routes.py          /health, /preview, /export, /defect-samples/analyze, 동시성 제한
   app/api/errors.py          공통 오류 포맷, 검증 오류 한국어 번역
   app/schemas/generation.py  Pydantic 스키마, LIMITS/DEFAULTS
   app/core/image_io.py       업로드 읽기·디코딩·정규화·PNG 인코딩
@@ -339,23 +354,24 @@ backend/
   app/core/regions.py        1.1 생성/제외 영역 → 허용 영역·통계 영역·경계 거리·해시
   app/core/surface.py        1.1 국소 표면 분석 (원본, 정규화 컨볼루션)
   app/core/generation_v11.py 1.1 파이프라인 (기준선·방향 해석, 준비/생성)
+  app/core/samples.py        결함 샘플: 마스크 규칙, 배경 추정(인페인팅), 결함별 측정, 규칙 맞춤 제안값
   app/core/pipeline.py       버전별 준비·샘플러 (preview/export 공용)
   app/core/exporter.py       데이터셋 ZIP
-  app/defects/               DefectGenerator 기반 클래스, 1.0 3종 생성기, 1.1 스크래치(방향·표면 맞춤)·텍스처(DRAEM 방식)·패치(NSA 방식), 펄린 노이즈·래스터 헬퍼
+  app/defects/               DefectGenerator 기반 클래스, 1.0 3종 생성기, 1.1 스크래치(방향·표면 맞춤)·텍스처(DRAEM 방식)·패치(NSA 방식)·실제 결함(샘플 이식), 펄린 노이즈·래스터 헬퍼
   app/inference/base.py      V2용 InferenceAdapter 인터페이스(구현 없음)
   scripts/                   예시 이미지·합성 부품 fixture 생성, 성능 측정
-  tests/                     pytest 232개 (1.0 회귀 해시 포함)
+  tests/                     pytest 256개 (1.0 회귀 해시 포함)
 frontend/
   src/App.tsx                3패널 레이아웃(모바일 세로 스택)
   src/components/            ImageUploader, AreaEditor(영역 패널·꼭짓점 편집·영역/기준선 캔버스 레이어), PreviewCanvas,
-                             DefectControls(결함별 패널·스크래치 방향·생성 설정·하단 생성 버튼), MaskLegend, GenerationSummary,
+                             DefectSamples(결함 샘플·규칙 맞추기), DefectControls(결함별 패널·스크래치 방향·생성 설정·하단 생성 버튼), MaskLegend, GenerationSummary,
                              ExportPanel, StatusBar, Toast, Header, ui(접히는 패널·라벨/값 행·입력)
   src/styles/index.css       무채색 색 토큰과 공용 컨트롤 스타일
   src/store/                 Zustand 작업 상태 (영역·기준선 포함)
   src/api/client.ts          fetch 래퍼(AbortController)
   src/lib/                   좌표 변환, 영역·기준선 그리기 동작, 영역·마스크 색상, 이미지 파일 검사
   src/types/                 타입, Zod 스키마, limits.json
-  tests/                     Playwright E2E (workspace.spec.ts, regions.spec.ts)
+  tests/                     Playwright E2E (workspace.spec.ts, regions.spec.ts), fixtures/(합성 결함 샘플)
 examples/configs/            예시 config 4종 (1.0 × 3, 1.1 × 1)
 docs/MVP_SPEC.md             원본 설계서
 DECISIONS.md                 설계서에 없던 구현 판단과 이유
@@ -384,6 +400,14 @@ DECISIONS.md                 설계서에 없던 구현 판단과 이유
   - 둘 다 이상 탐지 모델 학습용 합성 기법(DRAEM, NSA)을 논문 설명대로 새로 구현한 것입니다(원 코드 복사 없음). 실제 결함처럼 보이도록 만든 방법이 아니며, 실제 결함과의 유사성은 검증하지 않았습니다.
   - 원래 DRAEM은 외부 텍스처 데이터셋(DTD)을 쓰지만, 여기서는 데이터셋을 받지 않도록 같은 이미지의 다른 곳(돌리고 밝기 변경)이나 노이즈 무늬를 씁니다. 질감 종류는 원본보다 적습니다.
   - 패치는 같은 이미지에서 가져오므로 무늬가 없는 평탄한 표면에서는 바뀌는 것이 없어 422(`no_visible_change`)가 납니다. 결이 있는 표면에서 가장 잘 보이고 `mixed`는 의도적으로 은은합니다. 포아송 블렌딩(OpenCV `seamlessClone`)의 ±1 반올림 오차는 결함으로 치지 않고 원본 그대로 둡니다.
+- **결함 샘플·실제 결함 (config 1.1)**:
+  - 학습 모델 없이 영상 처리만 씁니다. 받은 결함의 변형(회전·크기·강도)만 만들고, 새로운 종류의 결함은 생기지 않습니다. 다양성은 올린 샘플 수만큼입니다.
+  - 결함이 표면을 바꾼 정도를 '샘플 − 추정 배경(인페인팅)'으로 잡아 옮깁니다. 배경 추정이 틀리면(결이 강한 표면, 큰 결함) 샘플 표면의 결 일부가 결함과 함께 옮겨집니다.
+  - 밝기 차이를 더하는 방식이라, 샘플과 대상 표면의 밝기·재질·배율이 크게 다르면 어색하거나(예: 아주 어두운 표면의 어두운 결함은 0에서 잘림) 크기가 맞지 않습니다. 같은 카메라·배율·조명의 샘플을 쓰고 `배율`·`강도`로 맞추세요.
+  - 마스크는 그대로 믿습니다. 마스크가 결함보다 넓으면 배경 차이까지 옮겨지고, 마스크 밖으로 번진 결함 가장자리는 옮겨지지 않습니다.
+  - `규칙 맞추기`는 크기·대비·극성만 채웁니다. 측정은 마스크 모양과 추정 배경에 기반한 근사이고, 스크래치/점·얼룩 구분은 길쭉함(길이 ≥ 3×폭)뿐입니다. 곡률·불규칙도·테두리 등은 그대로입니다.
+  - **데이터 누수 주의**: 재료로 쓴 실제 결함 이미지는 검사 모델의 평가(test) 데이터에 넣으면 안 됩니다. 모델이 그 결함을 외워 점수가 부풀려집니다.
+  - 샘플은 서버에 저장하지 않고 요청마다 함께 보냅니다. 페이지를 새로 고치면 다시 올려야 합니다. 검증은 합성 이미지에 그린 결함으로만 했습니다.
 - 겹침을 허용하면 인스턴스 bbox는 적용 시점 기준이라 나중 결함이 덮은 픽셀도 포함될 수 있습니다.
 - 모바일에서는 버튼으로 확대·축소합니다(핀치 줌 없음). 영역 편집 실행 취소(undo)는 없습니다.
 - 프론트 번들이 약 710 kB(gzip 216 kB)로, 대부분 Konva입니다. 로컬 도구 특성상 코드 분할은 하지 않았습니다.
@@ -392,6 +416,7 @@ DECISIONS.md                 설계서에 없던 구현 판단과 이유
 ## 자산·라이선스
 
 - 예시 이미지 `frontend/public/samples/brushed_metal_512x448.png`와 `part_synthetic_640x400.png`는 `backend/scripts/generate_sample_image.py`가 난수로 만든 합성 이미지로, 외부 자산을 사용하지 않았습니다. 부품 예시는 칩 부품 형태의 기하 fixture이며 실제 부품 사진이 아닙니다.
+- `frontend/tests/fixtures/defect_sample*.png`는 번들 예시 이미지(합성 금속 표면)에 결함을 그려 만든 테스트용 합성 자산입니다.
 - 텍스처 결함·패치 이식은 DRAEM(Zavrtanik et al., ICCV 2021)과 NSA(Schlüter et al., ECCV 2022) 논문의 방식을 참고해 새로 작성했습니다.
 - 사용한 오픈소스(FastAPI, NumPy, OpenCV, Pillow, React, Konva 등)는 각 라이선스를 따릅니다. 상업적 사용 전에 각 라이선스를 확인하세요.
 - 업로드한 이미지와 결과는 서버에 저장되지 않습니다(미리보기는 메모리 처리, ZIP은 전송 후 즉시 삭제). 외부 API로 전송하지 않습니다.

@@ -1,4 +1,4 @@
-"""HTTP layer: /api/v1/health, /api/v1/preview, /api/v1/export."""
+"""HTTP layer: /api/v1/health, /api/v1/preview, /api/v1/export, /api/v1/defect-samples/analyze."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import threading
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from typing import IO, Annotated, Any
 
 from fastapi import APIRouter, File, Form, Request, UploadFile
@@ -20,10 +21,12 @@ from app.config import APP_VERSION, Settings
 from app.core.exporter import write_dataset_zip
 from app.core.image_io import SourceImage, b64, decode_image, encode_png, read_upload_limited
 from app.core.pipeline import make_sampler
+from app.core.samples import DefectSampleSet, analyze_samples, load_defect_samples
 from app.error_codes import DefectForgeError, ErrorCode
 from app.schemas.generation import (
     V11_CONFIG_VERSION,
     AnyGenerationConfig,
+    DefectSampleAnalysis,
     ErrorResponse,
     GenerationConfig,
     GenerationConfigV11,
@@ -39,7 +42,7 @@ _STREAM_CHUNK = 1024 * 1024
 ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
     400: {"model": ErrorResponse, "description": "필수 입력 누락 / config JSON 문법 오류"},
     413: {"model": ErrorResponse, "description": "업로드 크기 초과"},
-    422: {"model": ErrorResponse, "description": "이미지·ROI·영역·기준선·파라미터 오류, 결함 배치 실패"},
+    422: {"model": ErrorResponse, "description": "이미지·ROI·영역·기준선·파라미터·결함 샘플 오류, 결함 배치 실패"},
     429: {"model": ErrorResponse, "description": "동시 생성 작업 한도 초과"},
     500: {"model": ErrorResponse, "description": "서버 내부 오류"},
 }
@@ -48,6 +51,18 @@ FileField = Annotated[UploadFile, File(description="정상 이미지 (PNG/JPEG/W
 ConfigField = Annotated[
     str,
     Form(description='설정 JSON 문자열. version "1.0"(또는 생략) = ROI 하나 + 결함, "1.1" = 1.0 + 생성/제외 영역·경계 여유·스크래치 방향/표면 맞춤'),
+]
+DefectImagesField = Annotated[
+    list[UploadFile] | None,
+    File(description="실제 결함 이미지 (PNG/JPEG/WebP, 각 변 8~2048px). config 1.1에 'real' 결함이 있을 때만 사용. 최대 8개"),
+]
+DefectLabelsField = Annotated[
+    list[UploadFile] | None,
+    File(description="defect_images와 같은 순서의 YOLO 세그멘테이션 라벨 txt (한 줄 = 결함 하나: 클래스 x1 y1 x2 y2 …, 0–1 정규화)"),
+]
+ClassNamesField = Annotated[
+    UploadFile | None,
+    File(description="(선택) 라벨 클래스 이름: classes.txt(한 줄에 하나) 또는 data.yaml(names). 없으면 class_<번호>"),
 ]
 
 
@@ -92,19 +107,77 @@ def _load_inputs(file: UploadFile, config: str, settings: Settings) -> tuple[Sou
     return source, cfg
 
 
+@dataclass(frozen=True)
+class _SampleUpload:
+    pairs: list[tuple[bytes, bytes]]  # (image, label txt), paired by position
+    class_names: tuple[bytes, str] | None  # (content, filename)
+
+    def decode(self, settings: Settings) -> DefectSampleSet:
+        return load_defect_samples(self.pairs, self.class_names, settings.max_image_dim)
+
+
+def _read_defect_samples(
+    images: list[UploadFile] | None, labels: list[UploadFile] | None, class_names: UploadFile | None, settings: Settings
+) -> _SampleUpload:
+    """Raw uploads; images, labels and the names file together are at most ``max_defect_sample_bytes``."""
+    images, labels = images or [], labels or []
+    if len(images) != len(labels):
+        raise DefectForgeError(
+            ErrorCode.INVALID_DEFECT_SAMPLE,
+            f"결함 이미지({len(images)}개)와 라벨 파일({len(labels)}개)의 개수가 다릅니다. 이미지마다 라벨 txt를 하나씩 같은 순서로 보내세요.",
+            {"images": len(images), "labels": len(labels)},
+        )
+    if len(images) > settings.max_defect_samples:
+        raise DefectForgeError(
+            ErrorCode.INVALID_DEFECT_SAMPLE,
+            f"결함 샘플은 최대 {settings.max_defect_samples}개까지 보낼 수 있습니다 (입력: {len(images)}개).",
+            {"max": settings.max_defect_samples},
+        )
+    total = 0
+
+    def read(upload: UploadFile) -> bytes:
+        nonlocal total
+        data = read_upload_limited(upload.file, settings.max_upload_bytes)
+        total += len(data)
+        if total > settings.max_defect_sample_bytes:
+            raise DefectForgeError(
+                ErrorCode.FILE_TOO_LARGE,
+                f"결함 샘플 파일의 합계가 너무 큽니다. 이미지·라벨·클래스 이름을 합쳐 최대 {settings.max_defect_sample_bytes / (1024 * 1024):g} MiB까지 보낼 수 있습니다.",
+                {"max_bytes": settings.max_defect_sample_bytes},
+            )
+        return data
+
+    pairs = [(read(image), read(label)) for image, label in zip(images, labels)]
+    names = (read(class_names), class_names.filename or "") if class_names is not None else None
+    return _SampleUpload(pairs, names)
+
+
+def _uses_real(cfg: AnyGenerationConfig) -> bool:
+    return isinstance(cfg, GenerationConfigV11) and cfg.uses_real_samples
+
+
 @router.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     return HealthResponse(status="ok", version=APP_VERSION)
 
 
 @router.post("/preview", response_model=PreviewResponse, responses=ERROR_RESPONSES)
-def preview(request: Request, file: FileField, config: ConfigField) -> PreviewResponse:
+def preview(
+    request: Request,
+    file: FileField,
+    config: ConfigField,
+    defect_images: DefectImagesField = None,
+    defect_labels: DefectLabelsField = None,
+    class_names: ClassNamesField = None,
+) -> PreviewResponse:
     """합성 이미지 1장과 정답 마스크를 base64 PNG(data URI 접두어 없음)로 반환한다."""
     settings: Settings = request.app.state.settings
     source, cfg = _load_inputs(file, config, settings)
+    upload = _read_defect_samples(defect_images, defect_labels, class_names, settings) if _uses_real(cfg) else None
     with request.app.state.jobs.slot():
         started = time.perf_counter()
-        result = make_sampler(source, cfg).generate(cfg.seed)
+        samples = upload.decode(settings) if upload is not None else None
+        result = make_sampler(source, cfg, samples).generate(cfg.seed)
         response = PreviewResponse(
             image_png_base64=b64(encode_png(result.image)),
             class_mask_png_base64=b64(encode_png(result.class_mask)),
@@ -134,6 +207,9 @@ def export(
     file: FileField,
     config: ConfigField,
     sample_count: Annotated[int, Form(description="생성할 샘플 수 (1~20). i번째 seed = config.seed + i")],
+    defect_images: DefectImagesField = None,
+    defect_labels: DefectLabelsField = None,
+    class_names: ClassNamesField = None,
 ) -> StreamingResponse:
     """N장 합성 데이터셋 ZIP을 생성해 내려준다. 임시 파일은 전송 후(또는 오류 시) 즉시 삭제된다."""
     settings: Settings = request.app.state.settings
@@ -144,12 +220,14 @@ def export(
             {"min": 1, "max": settings.max_export_count},
         )
     source, cfg = _load_inputs(file, config, settings)
+    upload = _read_defect_samples(defect_images, defect_labels, class_names, settings) if _uses_real(cfg) else None
 
     # In memory up to the threshold, then an anonymous temp file that the OS deletes on close.
     spool = tempfile.SpooledTemporaryFile(max_size=settings.export_spool_max_bytes, dir=settings.export_tmp_dir)
     try:
         with request.app.state.jobs.slot():
-            write_dataset_zip(source, cfg, sample_count, spool)
+            samples = upload.decode(settings) if upload is not None else None
+            write_dataset_zip(source, cfg, sample_count, spool, defect_samples=samples)
         size = spool.tell()
     except BaseException:
         spool.close()
@@ -160,3 +238,17 @@ def export(
         headers={"Content-Disposition": f'attachment; filename="{EXPORT_FILENAME}"', "Content-Length": str(size)},
         background=BackgroundTask(spool.close),  # idempotent safety net
     )
+
+
+@router.post("/defect-samples/analyze", response_model=DefectSampleAnalysis, responses=ERROR_RESPONSES)
+def analyze_defect_samples(
+    request: Request,
+    defect_images: Annotated[list[UploadFile], File(description="실제 결함 이미지 (최대 8개)")],
+    defect_labels: Annotated[list[UploadFile], File(description="defect_images와 같은 순서의 YOLO 세그멘테이션 라벨 txt")],
+    class_names: ClassNamesField = None,
+) -> DefectSampleAnalysis:
+    """결함 샘플을 검사하고, 결함마다 크기·방향·대비를 재서 규칙 결함(스크래치·핀홀·오염) 파라미터 제안값을 돌려준다."""
+    settings: Settings = request.app.state.settings
+    upload = _read_defect_samples(defect_images, defect_labels, class_names, settings)
+    with request.app.state.jobs.slot():
+        return DefectSampleAnalysis.model_validate(analyze_samples(upload.decode(settings)))
