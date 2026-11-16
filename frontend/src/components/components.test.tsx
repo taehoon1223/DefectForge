@@ -1,8 +1,10 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { useDrawKeyboard } from '../lib/drawActions'
 import { useWorkspaceStore } from '../store/useWorkspaceStore'
 import { DefectControls, GenerateBar, GenerationSettings } from './DefectControls'
+import { DefectSamplesPanel } from './DefectSamples'
 import { ExportButton, ExportPanel } from './ExportPanel'
 import { MaskLegend } from './MaskLegend'
 import { StatusBar } from './StatusBar'
@@ -84,6 +86,31 @@ describe('DefectControls', () => {
     render(<DefectControls />)
     await userEvent.click(screen.getByTestId('contamination-polarity-bright'))
     expect(useWorkspaceStore.getState().form.defects.contamination.params.polarity).toBe('bright')
+  })
+})
+
+describe('DefectSamplesPanel', () => {
+  it('draws labels only after a defect image is picked, with the workspace shortcuts quiet while the dialog is open', async () => {
+    vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:defect') }))
+    loadImage() // a surface image is loaded, so P would start drawing a generation region
+    function Workspace() {
+      useDrawKeyboard()
+      return <DefectSamplesPanel />
+    }
+    render(<Workspace />)
+    await userEvent.click(screen.getByRole('button', { name: '결함 샘플 펼치기' }))
+    expect(screen.getByTestId('sample-draw')).toBeDisabled()
+    await userEvent.upload(screen.getByTestId('sample-image-input'), new File([new Uint8Array(4)], 'defect.png', { type: 'image/png' }))
+    await userEvent.click(screen.getByTestId('sample-draw'))
+    expect(screen.getByRole('dialog', { name: '결함 그리기' })).toBeInTheDocument()
+    expect(screen.getByTestId('sample-editor-add')).toBeDisabled()
+    await userEvent.keyboard('p')
+    expect(useWorkspaceStore.getState().tool).toBe('select')
+    await userEvent.click(screen.getByTestId('sample-editor-cancel'))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    await userEvent.keyboard('p')
+    expect(useWorkspaceStore.getState().tool).toBe('draw')
   })
 })
 

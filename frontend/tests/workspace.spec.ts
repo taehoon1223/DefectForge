@@ -26,16 +26,16 @@ async function generate(page: Page) {
 }
 
 /** Current view transform as exposed by the canvas container. */
-async function viewState(page: Page) {
-  const el = page.getByTestId('canvas-container')
+async function viewState(page: Page, canvasTestId = 'canvas-container') {
+  const el = page.getByTestId(canvasTestId)
   const box = (await el.boundingBox())!
   const num = async (name: string) => Number(await el.getAttribute(name))
   return { box, scale: await num('data-scale'), x: await num('data-offset-x'), y: await num('data-offset-y') }
 }
 
 /** Page coordinates of the centre of image pixel (px, py) under the current zoom/pan. */
-async function pixelToPage(page: Page, px: number, py: number) {
-  const v = await viewState(page)
+async function pixelToPage(page: Page, px: number, py: number, canvasTestId = 'canvas-container') {
+  const v = await viewState(page, canvasTestId)
   return { x: v.box.x + v.x + (px + 0.5) * v.scale, y: v.box.y + v.y + (py + 0.5) * v.scale }
 }
 
@@ -224,6 +224,59 @@ test('YOLO 라벨 샘플로 스크래치 크기·대비를 맞추고, 실제 결
   expect(strFromU8(files['data.yaml'])).toContain('0: "line_mark"')
   const labelClasses = new Set(strFromU8(files['labels/image_0001.txt']).trim().split('\n').map((l) => l.split(' ')[0]))
   expect([...labelClasses].every((c) => ['0', '1', '2', '3', '4'].includes(c))).toBe(true)
+})
+
+test('라벨 파일 없이 결함 이미지 위에 결함을 직접 그려 샘플로 추가하고, 그린 클래스별로 옮겨 붙인다', async ({ page }) => {
+  await upload(page)
+  await page.getByRole('button', { name: '결함 샘플 펼치기' }).click()
+  await expect(page.getByTestId('sample-draw')).toBeDisabled()
+  await page.getByTestId('sample-image-input').setInputFiles(DEFECT_IMAGE)
+  await page.getByTestId('sample-draw').click()
+  const editor = page.getByTestId('sample-editor')
+  await expect(editor).toBeVisible()
+  await expect(page.getByTestId('sample-canvas')).not.toHaveAttribute('data-scale', '1') // fitted to the 200×160 image
+
+  const clickPixels = async (points: number[][]) => {
+    for (const [px, py] of points) {
+      const p = await pixelToPage(page, px, py, 'sample-canvas')
+      await page.mouse.click(p.x, p.y)
+    }
+  }
+  // The fixture's dark scratch (class 0), closed with Enter; then its bright spot as class 1, closed on the first point.
+  const scratch = [[44, 46], [118, 88], [115, 94], [41, 52]]
+  await clickPixels(scratch)
+  await page.keyboard.press('Enter')
+  await page.getByTestId('sample-class').fill('1')
+  const spot = [[158, 113], [172, 113], [172, 127], [158, 127]]
+  await clickPixels([...spot, spot[0]])
+  await expect(page.getByTestId('sample-defect')).toHaveCount(2)
+  await expect(page.getByTestId('sample-defect-class-0')).toHaveValue('0')
+  await expect(page.getByTestId('sample-defect-class-1')).toHaveValue('1')
+
+  const [analyzed] = await Promise.all([
+    page.waitForResponse((r) => r.url().endsWith('/api/v1/defect-samples/analyze')),
+    page.getByTestId('sample-editor-add').click(),
+  ])
+  expect(analyzed.status()).toBe(200)
+  const { defects } = await analyzed.json()
+  // The server's defect pixels are exactly the drawn polygons (vertices included).
+  expect(defects.map((d: { class_id: number; bbox_xyxy: number[] }) => [d.class_id, d.bbox_xyxy])).toEqual([
+    [0, [41, 46, 118, 94]],
+    [1, [158, 113, 172, 127]],
+  ])
+  await expect(editor).toHaveCount(0)
+  await expect(page.getByTestId('sample-item')).toHaveCount(1)
+  await expect(page.getByTestId('sample-defects-0')).toHaveText('결함 2')
+  await expect(page.getByTestId('sample-image-name')).toHaveText('—')
+
+  await page.getByTestId('enable-real').check()
+  await expect(page.getByTestId('real-sample-status')).toHaveText('1개 · 결함 2개 · 클래스 2개')
+  await page.getByTestId('count-real').fill('4')
+  const response = await generate(page)
+  expect(response.status()).toBe(200)
+  const meta = (await response.json()).metadata
+  expect(meta.class_map).toMatchObject({ '6': 'real:class_0', '7': 'real:class_1' })
+  expect(meta.instances.filter((i: { type: string }) => i.type === 'real')).toHaveLength(4)
 })
 
 test('데이터셋 ZIP N=10: 이미지·클래스 마스크·바이너리 마스크·메타데이터가 1:1로 대응', async ({ page }) => {

@@ -165,12 +165,14 @@ export function PolygonHandles({
   scale,
   imageSize,
   onChange,
+  minPointsMessage = '영역 다각형은 최소 3개의 점이 필요합니다. 영역을 지우려면 목록에서 ×를 누르세요.',
 }: {
   points: Point[]
   color: string
   scale: number
   imageSize: Size
   onChange: (points: Point[]) => void
+  minPointsMessage?: string
 }) {
   const pushToast = useWorkspaceStore((s) => s.pushToast)
   const r = 5.5 / scale
@@ -238,7 +240,7 @@ export function PolygonHandles({
               e.evt.preventDefault()
               e.cancelBubble = true
               if (points.length <= 3) {
-                pushToast('info', '영역 다각형은 최소 3개의 점이 필요합니다. 영역을 지우려면 목록에서 ×를 누르세요.')
+                pushToast('info', minPointsMessage)
                 return
               }
               onChange(points.filter((_, j) => j !== i))

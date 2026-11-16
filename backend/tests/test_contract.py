@@ -12,6 +12,7 @@ from app.config import MIN_IMAGE_DIM, Settings
 from app.core.image_io import decode_image
 from app.core.pipeline import make_sampler
 from app.core.samples import SAMPLE_MIN_DIM
+from app.core.yolo import MAX_CLASSES
 from app.schemas.generation import (
     AREA_DEFAULTS,
     AREA_LIMITS,
@@ -70,7 +71,7 @@ def test_global_limits_match_frontend():
     assert data["image"]["minDim"] == MIN_IMAGE_DIM
     assert data["image"]["maxDim"] == settings.max_image_dim
     assert data["image"]["maxUploadBytes"] == settings.max_upload_bytes
-    assert data["defectSamples"] == {"maxCount": settings.max_defect_samples, "maxTotalBytes": settings.max_defect_sample_bytes, "minDim": SAMPLE_MIN_DIM}
+    assert data["defectSamples"] == {"maxCount": settings.max_defect_samples, "maxTotalBytes": settings.max_defect_sample_bytes, "minDim": SAMPLE_MIN_DIM, "maxClasses": MAX_CLASSES}
     assert data["exportCount"]["max"] == settings.max_export_count and data["exportCount"]["min"] == 1
 
 

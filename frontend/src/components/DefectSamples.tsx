@@ -2,6 +2,7 @@ import { useRef, useState, type ReactNode } from 'react'
 import { realClassColor, rgbCss } from '../lib/maskColors'
 import { useWorkspaceStore } from '../store/useWorkspaceStore'
 import { DEFECT_LABELS, FITTABLE_TYPES, LIMITS } from '../types/generation'
+import { SampleLabelEditor } from './SampleLabelEditor'
 import { Row, Section, Spinner } from './ui'
 
 const IMAGE_ACCEPT = [...LIMITS.image.acceptedMimeTypes, ...LIMITS.image.acceptedExtensions].join(',')
@@ -61,6 +62,7 @@ export function DefectSamplesPanel() {
   const applySampleFit = useWorkspaceStore((s) => s.applySampleFit)
   const [image, setImage] = useState<File | null>(null)
   const [label, setLabel] = useState<File | null>(null)
+  const [drawing, setDrawing] = useState(false)
   const max = LIMITS.defectSamples.maxCount
   const full = samples.length >= max
 
@@ -80,10 +82,32 @@ export function DefectSamplesPanel() {
       aside={samples.length > 0 ? <span className="num text-[11px] text-muted">{samples.length}</span> : undefined}
     >
       <p className="text-[11px] leading-relaxed text-faint" title="라벨: 한 줄에 결함 하나, '클래스 x1 y1 x2 y2 …' (0–1 정규화 좌표)">
-        실제 결함 이미지와 YOLO 세그멘테이션 라벨(txt)을 넣어 ‘실제 결함’에 쓰거나 규칙 결함을 맞춥니다.
+        실제 결함 이미지에 YOLO 세그멘테이션 라벨(txt)을 고르거나 결함을 직접 그려 넣고, ‘실제 결함’에 쓰거나 규칙 결함을 맞춥니다.
       </p>
       <FilePick label="결함 이미지" file={image} accept={IMAGE_ACCEPT} onPick={setImage} testId="sample-image" />
-      <FilePick label="라벨 txt" file={label} accept=".txt,text/plain" onPick={setLabel} testId="sample-label" />
+      <FilePick label="라벨 txt" file={label} accept=".txt,text/plain" onPick={setLabel} testId="sample-label">
+        <button
+          type="button"
+          className="btn h-[22px] shrink-0 px-2"
+          disabled={!image || busy || full}
+          title={image ? '결함 이미지 위에 결함을 다각형으로 그려 라벨을 만듭니다' : '결함 이미지를 먼저 고르세요'}
+          onClick={() => setDrawing(true)}
+          data-testid="sample-draw"
+        >
+          직접 그리기
+        </button>
+      </FilePick>
+      {drawing && image && (
+        <SampleLabelEditor
+          image={image}
+          onClose={() => setDrawing(false)}
+          onAdded={() => {
+            setDrawing(false)
+            setImage(null)
+            setLabel(null)
+          }}
+        />
+      )}
       <Row label="">
         <button type="button" className="btn w-full" disabled={!image || !label || busy || full} onClick={() => void add()} data-testid="sample-add">
           {busy ? (

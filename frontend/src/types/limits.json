@@ -8,7 +8,7 @@
     "acceptedMimeTypes": ["image/png", "image/jpeg", "image/webp"],
     "acceptedExtensions": [".png", ".jpg", ".jpeg", ".webp"]
   },
-  "defectSamples": { "maxCount": 8, "maxTotalBytes": 20971520, "minDim": 8 },
+  "defectSamples": { "maxCount": 8, "maxTotalBytes": 20971520, "minDim": 8, "maxClasses": 250 },
   "roiMaxPoints": 256,
   "area": {
     "regionMaxCount": 32,

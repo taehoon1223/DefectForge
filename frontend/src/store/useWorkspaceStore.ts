@@ -146,7 +146,7 @@ export function blockingReason(
     return '스크래치 방향 ‘기준선’에는 기준선이 필요합니다. ‘기준선 그리기’로 두 점을 찍거나 다른 방향을 고르세요.'
   }
   if (state.form.defects.real.enabled && state.defectSamples.length === 0) {
-    return '‘실제 결함’에 쓸 결함 샘플을 먼저 추가하세요 (결함 샘플 → 이미지·라벨 txt 선택 → 샘플 추가).'
+    return '‘실제 결함’에 쓸 결함 샘플을 먼저 추가하세요 (결함 샘플 → 결함 이미지 선택 → 라벨 txt 선택 또는 직접 그리기 → 샘플 추가).'
   }
   return null
 }
