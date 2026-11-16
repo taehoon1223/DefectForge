@@ -1,7 +1,8 @@
 """Config 1.1 pipeline: 1.0 defects (+ texture/patch/real) inside include/exclude areas, scratch direction and surface matching.
 
 prepare (once per request):  regions -> allowed area (core/regions.py) -> reference line -> scratch base angle
-                             -> local surface analysis of the *source* when scratch shading is "local"
+                             -> local surface analysis of the *source* when scratch or pinhole shading is "local"
+                                (one per window size: both types share it when their σ is the same)
                              -> exemplars of the uploaded defect samples when "real" is requested
 generate (per seed):         rng(seed) -> place_instances (shared with 1.0, max 100 attempts)
                              -> CompositeCanvas restricted to the allowed area -> masks + metadata
@@ -25,6 +26,7 @@ from app.core.samples import SAMPLE_ANALYSIS_VERSION, DefectSampleSet
 from app.core.surface import ANALYSIS_VERSION, SurfaceAnalysis, analyze_surface
 from app.core.yolo import YoloClasses
 from app.defects import GENERATORS, REAL_CLASS_OFFSET, v11_class_map
+from app.defects.adaptive_pinhole import ADAPTIVE_PINHOLE_VERSION, AdaptivePinholeGenerator
 from app.defects.adaptive_scratch import ADAPTIVE_SCRATCH_VERSION, AdaptiveScratchGenerator
 from app.defects.base import DefectGenerator
 from app.defects.patch import PatchGenerator
@@ -32,7 +34,7 @@ from app.defects.real import REAL_DEFECT_VERSION, RealDefectGenerator
 from app.defects.texture import TextureGenerator
 from app.defects.base import r4
 from app.error_codes import DefectForgeError, ErrorCode
-from app.schemas.generation import REFERENCE_LINE_MIN_LENGTH_PX, V11_CONFIG_VERSION, GenerationConfigV11, OrientationSpec
+from app.schemas.generation import REFERENCE_LINE_MIN_LENGTH_PX, V11_CONFIG_VERSION, GenerationConfigV11, OrientationSpec, ShadingSpec
 
 HINTS_V11 = {
     **HINTS_KO,
@@ -71,7 +73,8 @@ def _line_error(message: str, **details: object) -> DefectForgeError:
 @dataclass(frozen=True)
 class V11Context:
     area: AreaGeometry
-    analysis: SurfaceAnalysis | None
+    analysis: SurfaceAnalysis | None  # scratch shading "local"
+    pinhole_analysis: SurfaceAnalysis | None  # pinhole shading "local"
     base_angle_deg: float | None
     samples: DefectSampleSet | None  # only when the config asks for "real" defects
     class_map: dict[str, str]
@@ -108,6 +111,16 @@ def prepare_v11_context(source: SourceImage, config: GenerationConfigV11, sample
         line_angle = line_angle_deg(start, end)
         line_meta = {"start": list(start), "end": list(end), "angle_deg": r4(line_angle), "length_px": r4(length)}
 
+    analyses: dict[float, SurfaceAnalysis] = {}
+
+    def analysis_for(shading: ShadingSpec) -> SurfaceAnalysis | None:
+        if shading.mode != "local":
+            return None
+        sigma = shading.window_sigma_px
+        if sigma not in analyses:
+            analyses[sigma] = analyze_surface(source.rgb, area.stats_domain, sigma)
+        return analyses[sigma]
+
     scratch = config.scratch
     base_angle: float | None = None
     analysis: SurfaceAnalysis | None = None
@@ -119,9 +132,9 @@ def prepare_v11_context(source: SourceImage, config: GenerationConfigV11, sample
                 orientation_mode=orientation.mode,
             )
         base_angle = resolve_base_angle(orientation, line_angle)
-        shading = scratch.params.shading
-        if shading.mode == "local":
-            analysis = analyze_surface(source.rgb, area.stats_domain, shading.window_sigma_px)
+        analysis = analysis_for(scratch.params.shading)
+    pinhole = config.pinhole
+    pinhole_analysis = analysis_for(pinhole.params.shading) if pinhole is not None else None
 
     real = config.uses_real_samples
     if real and (samples is None or not samples.samples):
@@ -137,11 +150,13 @@ def prepare_v11_context(source: SourceImage, config: GenerationConfigV11, sample
         "area": area.metadata,
         "reference_line": line_meta,
         "surface_analysis": analysis.summary if analysis is not None else None,
+        "pinhole_surface_analysis": pinhole_analysis.summary if pinhole_analysis is not None else None,
         "real_samples": used.metadata if used is not None else None,
         "algorithm_versions": {
             "region_geometry": REGION_GEOMETRY_VERSION,
-            "surface_analysis": ANALYSIS_VERSION if analysis is not None else None,
+            "surface_analysis": ANALYSIS_VERSION if analyses else None,
             "adaptive_scratch": ADAPTIVE_SCRATCH_VERSION if scratch is not None else None,
+            "adaptive_pinhole": ADAPTIVE_PINHOLE_VERSION if pinhole is not None else None,
             "defect_samples": SAMPLE_ANALYSIS_VERSION if real else None,
             "real_defect": REAL_DEFECT_VERSION if real else None,
         },
@@ -149,6 +164,7 @@ def prepare_v11_context(source: SourceImage, config: GenerationConfigV11, sample
     return V11Context(
         area=area,
         analysis=analysis,
+        pinhole_analysis=pinhole_analysis,
         base_angle_deg=base_angle,
         samples=used,
         class_map=class_map,
@@ -160,6 +176,8 @@ def prepare_v11_context(source: SourceImage, config: GenerationConfigV11, sample
 def _generator(defect_type: str, source: SourceImage, ctx: V11Context) -> DefectGenerator:
     if defect_type == "scratch":
         return AdaptiveScratchGenerator(source.rgb, ctx.analysis, ctx.base_angle_deg, ctx.area.distance_to_edge)
+    if defect_type == "pinhole":
+        return AdaptivePinholeGenerator(source.rgb, ctx.pinhole_analysis)
     if defect_type == "texture":
         return TextureGenerator(source.rgb)
     if defect_type == "patch":

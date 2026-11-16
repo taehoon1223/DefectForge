@@ -6,6 +6,8 @@ This is an appearance model only; it does not simulate the physical optics of a 
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
+from typing import Any
 
 import cv2
 import numpy as np
@@ -15,6 +17,33 @@ from app.defects.raster import blur_margin, gaussian_blur, grain, harmonic_outli
 from app.schemas.generation import PinholeParams
 
 _RING_CUTOFF = 0.1  # fraction of the rim peak
+
+
+@dataclass(frozen=True)
+class PinholeSpot:
+    """Everything the appearance needs; all random draws are already made."""
+
+    x0: int
+    y0: int
+    coverage: np.ndarray  # (h, w) anti-aliased spot
+    profile: np.ndarray  # (h, w) centre weighting, 0.4–1
+    noise: np.ndarray  # (h, w) grain
+    ring: np.ndarray | None  # (h, w) rim weighting normalised to peak 1, or None without a rim
+    contrast: float
+    polarity: str  # resolved: "dark" | "bright"
+    rim: float  # rim_strength
+
+
+def _rim_ring(coverage: np.ndarray, rim_width: float, rim_sigma: float) -> np.ndarray | None:
+    k = 2 * int(math.ceil(rim_width)) + 1
+    grown = gaussian_blur(cv2.dilate(coverage, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))), rim_sigma)
+    ring = np.clip(grown - coverage, 0.0, 1.0)
+    peak = float(ring.max())
+    if peak <= 0:
+        return None
+    ring /= peak
+    ring[ring < _RING_CUTOFF] = 0.0  # drop imperceptible blur tails that would bloat the mask
+    return ring
 
 
 class PinholeGenerator(DefectGenerator):
@@ -49,25 +78,12 @@ class PinholeGenerator(DefectGenerator):
         dx, dy = gx - center[0], gy - center[1]
         u, v = c * dx + s * dy, -s * dx + c * dy
         profile = np.clip(1.0 - 0.5 * ((u / ax) ** 2 + (v / ay) ** 2), 0.4, 1.0)
-        core_alpha = finalize_alpha(contrast * coverage * profile * grain(rng, shape, 0.08))
+        noise = grain(rng, shape, 0.08)
+        ring = _rim_ring(coverage, rim_width, rim_sigma) if rim > 0 else None
+        spot = PinholeSpot(x0, y0, coverage, profile, noise, ring, contrast, polarity, rim)
+        layers, shading = self._layers(spot, params)
 
-        dark = np.zeros(3, dtype=np.float32)
-        bright = np.full(3, 255.0, dtype=np.float32)
-        core_target, rim_target = (dark, bright) if polarity == "dark" else (bright, dark)
-
-        layers: list[EffectLayer] = []
-        if rim > 0:
-            k = 2 * int(math.ceil(rim_width)) + 1
-            grown = gaussian_blur(cv2.dilate(coverage, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))), rim_sigma)
-            ring = np.clip(grown - coverage, 0.0, 1.0)
-            peak = float(ring.max())
-            if peak > 0:
-                ring /= peak
-                ring[ring < _RING_CUTOFF] = 0.0  # drop imperceptible blur tails that would bloat the mask
-                layers.append(EffectLayer(finalize_alpha(rim * contrast * 0.5 * ring), rim_target))
-        layers.append(EffectLayer(core_alpha, core_target))  # core last so it dominates its own pixels
-
-        sampled = {
+        sampled: dict[str, Any] = {
             "radius_px": r4(radius),
             "semi_axes_px": [r4(ax), r4(ay)],
             "rotation_deg": r4(math.degrees(info["rotation"])),
@@ -77,4 +93,19 @@ class PinholeGenerator(DefectGenerator):
             "rim_strength": rim,
             "rim_width_px": r4(rim_width),
         }
+        if shading is not None:
+            sampled["shading"] = shading
         return RenderedDefect(x0, y0, layers, sampled, (float(center[0]), float(center[1])))
+
+    def _layers(self, spot: PinholeSpot, params: PinholeParams) -> tuple[list[EffectLayer], dict[str, Any] | None]:
+        """1.0 appearance: the core (and the rim, opposite polarity) blended toward black/white."""
+        core_alpha = finalize_alpha(spot.contrast * spot.coverage * spot.profile * spot.noise)
+        dark = np.zeros(3, dtype=np.float32)
+        bright = np.full(3, 255.0, dtype=np.float32)
+        core_target, rim_target = (dark, bright) if spot.polarity == "dark" else (bright, dark)
+
+        layers: list[EffectLayer] = []
+        if spot.ring is not None:
+            layers.append(EffectLayer(finalize_alpha(spot.rim * spot.contrast * 0.5 * spot.ring), rim_target))
+        layers.append(EffectLayer(core_alpha, core_target))  # core last so it dominates its own pixels
+        return layers, None

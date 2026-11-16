@@ -314,7 +314,7 @@ def test_metadata_records_what_is_needed_to_reproduce():
     fixture, source = part(angle_deg=12)
     meta = run(source, config(fixture, count=2)).metadata
     assert meta["version"] == "1.1" and meta["source_sha256"] == source.sha256
-    assert set(meta["algorithm_versions"]) == {"region_geometry", "surface_analysis", "adaptive_scratch", "defect_samples", "real_defect"}
+    assert set(meta["algorithm_versions"]) == {"region_geometry", "surface_analysis", "adaptive_scratch", "adaptive_pinhole", "defect_samples", "real_defect"}
     assert meta["algorithm_versions"]["real_defect"] is None and meta["real_samples"] is None  # no "real" defect requested
     area = meta["area"]
     assert [r["id"] for r in area["regions"]] == ["electrode_a"]

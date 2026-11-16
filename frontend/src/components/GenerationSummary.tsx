@@ -42,6 +42,7 @@ export function GenerationSummary() {
   const meta = result?.metadata
   const sameSize = !!meta && !!size && meta.width === size.width && meta.height === size.height
   const scratch = meta ? scratchInfo(meta) : null
+  const pinhole = meta?.config.defects.find((d) => d.type === 'pinhole')
 
   return (
     <Section
@@ -80,9 +81,10 @@ export function GenerationSummary() {
                   <Row label="스크래치 방향" testId="result-direction">
                     {scratch.direction}
                   </Row>
-                  <Row label="표면 밝기 맞춤">{scratch.surfaceMatch ? '켜짐' : '꺼짐'}</Row>
+                  <Row label="스크래치 표면 맞춤">{scratch.surfaceMatch ? '켜짐' : '꺼짐'}</Row>
                 </>
               )}
+              {pinhole?.type === 'pinhole' && <Row label="핀홀 표면 맞춤">{pinhole.params.shading.mode === 'local' ? '켜짐' : '꺼짐'}</Row>}
               <Row label="서버 처리 시간">{result.processing_ms.toFixed(0)} ms</Row>
               <Row label="원본 SHA-256">
                 <span title={meta.source_sha256}>{meta.source_sha256.slice(0, 12)}…</span>

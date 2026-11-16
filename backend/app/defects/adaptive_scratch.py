@@ -29,28 +29,14 @@ from typing import Any
 
 import numpy as np
 
-from app.core.surface import SurfaceAnalysis, luma
+from app.core.surface import SurfaceAnalysis
 from app.defects.base import DefectContext, DefectGenerator, EffectLayer, Rejected, RenderedDefect, finalize_alpha, r4
 from app.defects.raster import grain
 from app.defects.scratch import GRAIN_STRENGTH, ScratchShape, sample_scratch_shape, scratch_profile, shape_params
+from app.defects.surface_shading import shade, shading_info, surface_window
 from app.schemas.generation import AdaptiveScratchParams, ShadingSpec
 
 ADAPTIVE_SCRATCH_VERSION = "1.0"
-
-
-def _source_patch(source: np.ndarray, x0: int, y0: int, size: tuple[int, int]) -> np.ndarray:
-    """Float copy of the source under the patch; zeros outside the image (alpha is 0 there anyway)."""
-    h, w = size
-    out = np.zeros((h, w, 3), dtype=np.float32)
-    height, width = source.shape[:2]
-    ix0, iy0, ix1, iy1 = max(x0, 0), max(y0, 0), min(x0 + w, width), min(y0 + h, height)
-    if ix0 < ix1 and iy0 < iy1:
-        out[iy0 - y0 : iy1 - y0, ix0 - x0 : ix1 - x0] = source[iy0:iy1, ix0:ix1]
-    return out
-
-
-def _mean_over(values: np.ndarray, support: np.ndarray) -> float:
-    return r4(float(values[support].mean())) if support.any() else 0.0
 
 
 class AdaptiveScratchGenerator(DefectGenerator):
@@ -115,34 +101,9 @@ class AdaptiveScratchGenerator(DefectGenerator):
         self, x0: int, y0: int, size: tuple[int, int], shape: ScratchShape, spec: ShadingSpec, support: np.ndarray
     ) -> tuple[np.ndarray, dict[str, Any]]:
         assert self.analysis is not None
-        mean, std, fallback, flat = self.analysis.window(x0, y0, size)
-        source = _source_patch(self.source, x0, y0, size)
-        lum = luma(mean)
-        if shape.polarity == "dark":
-            headroom = np.maximum(lum, 0.0)
-            direction = -mean / np.maximum(lum, 1.0)[..., None]
-        else:
-            headroom = np.maximum(255.0 - lum, 0.0)
-            direction = (255.0 - mean) / np.maximum(255.0 - lum, 1.0)[..., None]
-        floor = np.minimum(spec.min_texture_ratio * std, headroom)
-        delta = np.minimum(np.maximum(shape.contrast * headroom, floor), headroom)
-        target = np.clip(source + delta[..., None] * direction, 0.0, 255.0).astype(np.float32)
-
-        info = {
-            "mode": "local",
-            "window_sigma_px": spec.window_sigma_px,
-            "min_texture_ratio": spec.min_texture_ratio,
-            "local_mean_rgb": [r4(float(c)) for c in mean[support].mean(axis=0)] if support.any() else [0.0, 0.0, 0.0],
-            "local_luma_mean": _mean_over(lum, support),
-            "local_luma_std": _mean_over(std, support),
-            "headroom_luma": _mean_over(headroom, support),
-            "delta_luma_mean": _mean_over(delta, support),
-            "delta_luma_max": r4(float(delta[support].max())) if support.any() else 0.0,
-            "texture_floor_fraction": _mean_over((floor > shape.contrast * headroom).astype(np.float32), support),
-            "fallback_fraction": _mean_over(fallback.astype(np.float32), support),
-            "flat_fraction": _mean_over(flat.astype(np.float32), support),
-        }
-        return target, info
+        win = surface_window(self.analysis, self.source, x0, y0, size)
+        target, headroom, delta, floor = shade(win, shape.polarity, shape.contrast, spec.min_texture_ratio)
+        return target, shading_info(spec, win, shape.contrast, headroom, delta, floor, support)
 
     def _min_edge_distance(self, x0: int, y0: int, support: np.ndarray) -> float:
         height, width = self.distance_to_edge.shape

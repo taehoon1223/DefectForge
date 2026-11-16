@@ -27,6 +27,10 @@ export type ReferenceLine = { start: Point; end: Point }
 export type OrientationMode = 'random' | 'parallel' | 'perpendicular' | 'absolute'
 /** fixed = 검정/흰색 쪽으로 섞기 (config 1.0과 같음), local = 원본 국소 밝기·색에 맞추기. */
 export type ShadingMode = 'fixed' | 'local'
+/** Surface matching shared by scratches and pinholes (limits/defaults: LIMITS.scratchOptions). */
+export type ShadingSpec = { mode: ShadingMode; window_sigma_px: number; min_texture_ratio: number }
+/** Defect types with a 표면 밝기에 맞추기 option. */
+export type ShadedType = 'scratch' | 'pinhole'
 
 export type ScratchParams = {
   length_px: Range
@@ -36,7 +40,7 @@ export type ScratchParams = {
   polarity: Polarity
   curvature: number
   orientation: { mode: OrientationMode; angle_deg: number; jitter_deg: number }
-  shading: { mode: ShadingMode; window_sigma_px: number; min_texture_ratio: number }
+  shading: ShadingSpec
 }
 export type PinholeParams = {
   radius_px: Range
@@ -44,6 +48,7 @@ export type PinholeParams = {
   contrast: Range
   polarity: Polarity
   rim_strength: number
+  shading: ShadingSpec
 }
 export type ContaminationParams = {
   radius_px: Range
@@ -183,6 +188,7 @@ export type GenerationMetadata = {
   }
   reference_line: { start: Point; end: Point; angle_deg: number; length_px: number } | null
   surface_analysis: Record<string, unknown> | null
+  pinhole_surface_analysis?: Record<string, unknown> | null
   real_samples?: { samples: DefectSampleInfo[]; class_names: string[]; class_names_sha256: string | null } | null
   algorithm_versions: Record<string, string | null>
 }
@@ -224,7 +230,7 @@ export function defaultDefectForm(): DefectForm {
   }
   return {
     scratch: make('scratch', LIMITS.scratchOptions.defaults),
-    pinhole: make('pinhole'),
+    pinhole: make('pinhole', { shading: LIMITS.scratchOptions.defaults.shading }),
     contamination: make('contamination'),
     texture: make('texture'),
     patch: make('patch'),
@@ -326,6 +332,11 @@ function countSchema([lo, hi]: number[]) {
 const polaritySchema = z.enum(['dark', 'bright', 'random'], { error: 'dark/bright/random 중 하나여야 합니다' })
 const L = LIMITS.defects
 const SO = LIMITS.scratchOptions.limits
+const shadingSchema = z.strictObject({
+  mode: z.enum(['fixed', 'local'], { error: '명암 방식을 선택하세요' }),
+  window_sigma_px: scalarSchema(SO.window_sigma_px),
+  min_texture_ratio: scalarSchema(SO.min_texture_ratio),
+})
 
 export const defectSchemas = {
   scratch: z.object({
@@ -343,11 +354,7 @@ export const defectSchemas = {
         angle_deg: scalarSchema(SO.angle_deg),
         jitter_deg: scalarSchema(SO.jitter_deg),
       }),
-      shading: z.strictObject({
-        mode: z.enum(['fixed', 'local'], { error: '명암 방식을 선택하세요' }),
-        window_sigma_px: scalarSchema(SO.window_sigma_px),
-        min_texture_ratio: scalarSchema(SO.min_texture_ratio),
-      }),
+      shading: shadingSchema,
     }),
   }),
   pinhole: z.object({
@@ -359,6 +366,7 @@ export const defectSchemas = {
       contrast: rangeSchema(L.pinhole.limits.contrast),
       polarity: polaritySchema,
       rim_strength: scalarSchema(L.pinhole.limits.rim_strength),
+      shading: shadingSchema,
     }),
   }),
   contamination: z.object({

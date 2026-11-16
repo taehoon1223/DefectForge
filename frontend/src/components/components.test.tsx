@@ -69,6 +69,17 @@ describe('DefectControls', () => {
     expect(useWorkspaceStore.getState().form.defects.scratch.params.shading.mode).toBe('local')
   })
 
+  it('pinhole surface matching is separate from the scratch one and shows its window settings', async () => {
+    render(<DefectControls />)
+    await userEvent.click(screen.getByTestId('details-pinhole'))
+    expect(screen.queryByText('통계 창 σ')).not.toBeInTheDocument()
+    await userEvent.click(screen.getByTestId('pinhole-surface-match'))
+    const { pinhole, scratch } = useWorkspaceStore.getState().form.defects
+    expect(pinhole.params.shading).toEqual({ mode: 'local', window_sigma_px: 6, min_texture_ratio: 1 })
+    expect(scratch.params.shading.mode).toBe('fixed')
+    expect(screen.getByText('통계 창 σ')).toBeInTheDocument()
+  })
+
   it('polarity buttons update the store', async () => {
     render(<DefectControls />)
     await userEvent.click(screen.getByTestId('contamination-polarity-bright'))

@@ -2,7 +2,18 @@ import type { ReactNode } from 'react'
 import { cancelDrawing, startLineDrawing } from '../lib/drawActions'
 import { CLASS_COLORS, rgbCss } from '../lib/maskColors'
 import { blockingReason, lineAngle, useWorkspaceStore } from '../store/useWorkspaceStore'
-import { DEFECT_LABELS, DEFECT_TYPES, LIMITS, validateForm, type DefectType, type FormErrors, type ParamsByType, type Polarity } from '../types/generation'
+import {
+  DEFECT_LABELS,
+  DEFECT_TYPES,
+  LIMITS,
+  validateForm,
+  type DefectType,
+  type FormErrors,
+  type ParamsByType,
+  type Polarity,
+  type ShadedType,
+  type ShadingSpec,
+} from '../types/generation'
 import { Disclosure, FieldError, NumberField, RangeField, Row, Section, SliderField, Spinner } from './ui'
 
 const POLARITY_OPTIONS: Array<{ value: Polarity; label: string }> = [
@@ -26,6 +37,7 @@ const CORE_ERROR_KEYS = new Set([
   'scratch.params.orientation.mode',
   'scratch.params.orientation.angle_deg',
   'scratch.params.shading.mode',
+  'pinhole.params.shading.mode',
   'texture.params.source',
   'patch.params.blend',
   'real.params.rotation',
@@ -71,6 +83,59 @@ export function PolarityField({ value, onChange, testId }: { value: Polarity; on
 }
 
 const err = (errors: FormErrors, type: DefectType, key: string) => errors[`${type}.params.${key}`]
+
+// ---------------------------------------------------------------- surface matching (scratch, pinhole)
+
+type ShadingProps = { shading: ShadingSpec; onChange: (patch: Partial<ShadingSpec>) => void }
+
+function SurfaceMatchToggle({ shading, onChange, testId }: ShadingProps & { testId: string }) {
+  return (
+    <Row label="표면 맞춤">
+      <label
+        className="flex cursor-pointer items-center gap-2 text-ink"
+        title="원본에서 생성 영역 안 픽셀만으로 구한 국소 평균 색·밝기에 맞춰, 주변 표면 색의 더 어두운/밝은 톤으로 그립니다. 조명·3D 형상을 복원하는 것은 아닙니다."
+      >
+        <input
+          type="checkbox"
+          className="h-3.5 w-3.5"
+          checked={shading.mode === 'local'}
+          onChange={(e) => onChange({ mode: e.target.checked ? 'local' : 'fixed' })}
+          data-testid={testId}
+        />
+        표면 밝기에 맞추기
+      </label>
+    </Row>
+  )
+}
+
+function ShadingDetails({ type, shading, onChange, errors }: ShadingProps & { type: ShadedType; errors: FormErrors }) {
+  if (shading.mode !== 'local') return null
+  return (
+    <>
+      <SliderField
+        label="통계 창 σ"
+        value={shading.window_sigma_px}
+        min={SO.window_sigma_px[0]}
+        max={SO.window_sigma_px[1]}
+        step={1}
+        format={(v) => `${v.toFixed(0)} px`}
+        onChange={(v) => onChange({ window_sigma_px: v })}
+        error={err(errors, type, 'shading.window_sigma_px')}
+      />
+      <SliderField
+        label="최소 대비"
+        value={shading.min_texture_ratio}
+        min={SO.min_texture_ratio[0]}
+        max={SO.min_texture_ratio[1]}
+        step={0.25}
+        format={(v) => `${v.toFixed(2)}σ`}
+        onChange={(v) => onChange({ min_texture_ratio: v })}
+        error={err(errors, type, 'shading.min_texture_ratio')}
+      />
+      <p className="text-[11px] leading-relaxed text-faint">표면 맞춤에서 대비는 주변 밝기의 여유 대비 비율, 최소 대비는 표면 결 표준편차의 배수입니다.</p>
+    </>
+  )
+}
 
 // ---------------------------------------------------------------- scratch
 
@@ -187,21 +252,7 @@ function ScratchCore({ errors }: { errors: FormErrors }) {
         </div>
       )}
       <PolarityField value={p.polarity} onChange={(v) => set('polarity', v)} testId="scratch-polarity" />
-      <Row label="표면 맞춤">
-        <label
-          className="flex cursor-pointer items-center gap-2 text-ink"
-          title="원본에서 생성 영역 안 픽셀만으로 구한 국소 평균 색·밝기에 맞춰, 주변 표면 색의 더 어두운/밝은 톤으로 그립니다. 조명·3D 형상을 복원하는 것은 아닙니다."
-        >
-          <input
-            type="checkbox"
-            className="h-3.5 w-3.5"
-            checked={p.shading.mode === 'local'}
-            onChange={(e) => setShading({ mode: e.target.checked ? 'local' : 'fixed' })}
-            data-testid="surface-match"
-          />
-          표면 밝기에 맞추기
-        </label>
-      </Row>
+      <SurfaceMatchToggle shading={p.shading} onChange={setShading} testId="surface-match" />
     </>
   )
 }
@@ -211,7 +262,6 @@ function ScratchDetails({ errors }: { errors: FormErrors }) {
   const setOrientation = useWorkspaceStore((s) => s.setScratchOrientation)
   const setShading = useWorkspaceStore((s) => s.setScratchShading)
   const lim = LIMITS.defects.scratch.limits
-  const local = p.shading.mode === 'local'
   return (
     <>
       <RangeField label="길이" unit="px" value={p.length_px} onChange={(v) => set('length_px', v)} error={err(errors, 'scratch', 'length_px')} testId="scratch-length" />
@@ -234,31 +284,7 @@ function ScratchDetails({ errors }: { errors: FormErrors }) {
           testId="scratch-jitter"
         />
       )}
-      {local && (
-        <>
-          <SliderField
-            label="통계 창 σ"
-            value={p.shading.window_sigma_px}
-            min={SO.window_sigma_px[0]}
-            max={SO.window_sigma_px[1]}
-            step={1}
-            format={(v) => `${v.toFixed(0)} px`}
-            onChange={(v) => setShading({ window_sigma_px: v })}
-            error={err(errors, 'scratch', 'shading.window_sigma_px')}
-          />
-          <SliderField
-            label="최소 대비"
-            value={p.shading.min_texture_ratio}
-            min={SO.min_texture_ratio[0]}
-            max={SO.min_texture_ratio[1]}
-            step={0.25}
-            format={(v) => `${v.toFixed(2)}σ`}
-            onChange={(v) => setShading({ min_texture_ratio: v })}
-            error={err(errors, 'scratch', 'shading.min_texture_ratio')}
-          />
-          <p className="text-[11px] leading-relaxed text-faint">표면 맞춤에서 대비는 주변 밝기의 여유 대비 비율, 최소 대비는 표면 결 표준편차의 배수입니다.</p>
-        </>
-      )}
+      <ShadingDetails type="scratch" shading={p.shading} onChange={setShading} errors={errors} />
     </>
   )
 }
@@ -267,11 +293,18 @@ function ScratchDetails({ errors }: { errors: FormErrors }) {
 
 function PinholeCore() {
   const [p, set] = useParam('pinhole')
-  return <PolarityField value={p.polarity} onChange={(v) => set('polarity', v)} testId="pinhole-polarity" />
+  const setShading = useWorkspaceStore((s) => s.setPinholeShading)
+  return (
+    <>
+      <PolarityField value={p.polarity} onChange={(v) => set('polarity', v)} testId="pinhole-polarity" />
+      <SurfaceMatchToggle shading={p.shading} onChange={setShading} testId="pinhole-surface-match" />
+    </>
+  )
 }
 
 function PinholeDetails({ errors }: { errors: FormErrors }) {
   const [p, set] = useParam('pinhole')
+  const setShading = useWorkspaceStore((s) => s.setPinholeShading)
   const lim = LIMITS.defects.pinhole.limits
   return (
     <>
@@ -279,6 +312,7 @@ function PinholeDetails({ errors }: { errors: FormErrors }) {
       <RangeField label="대비" value={p.contrast} onChange={(v) => set('contrast', v)} error={err(errors, 'pinhole', 'contrast')} step={0.05} testId="pinhole-contrast" />
       <SliderField label="불규칙도" value={p.irregularity} min={lim.irregularity[0]} max={lim.irregularity[1]} step={0.05} onChange={(v) => set('irregularity', v)} error={err(errors, 'pinhole', 'irregularity')} />
       <SliderField label="테두리" value={p.rim_strength} min={lim.rim_strength[0]} max={lim.rim_strength[1]} step={0.05} onChange={(v) => set('rim_strength', v)} error={err(errors, 'pinhole', 'rim_strength')} />
+      <ShadingDetails type="pinhole" shading={p.shading} onChange={setShading} errors={errors} />
     </>
   )
 }

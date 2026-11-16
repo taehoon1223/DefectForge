@@ -60,8 +60,9 @@ _V11_README = """
 - 결함은 '허용 영역 = 생성 영역(없으면 이미지 전체) − 제외 영역'에서 경계 여유를 뺀 곳에만 생깁니다.
   이 영역 밖의 픽셀은 원본과 완전히 같습니다.
 - 영역 다각형과 마스크 해시(allowed_mask_sha256 등), 기준선, 표면 분석 요약은
-  manifest.json과 metadata/*.json의 area / reference_line / surface_analysis 필드에 기록됩니다.
-- 스크래치 '표면 밝기에 맞추기'는 원본 이미지의 국소 평균·표준편차를 이용한 외관 규칙이며,
+  manifest.json과 metadata/*.json의 area / reference_line / surface_analysis(스크래치) /
+  pinhole_surface_analysis(핀홀) 필드에 기록됩니다.
+- 스크래치·핀홀 '표면 밝기에 맞추기'는 원본 이미지의 국소 평균·표준편차를 이용한 외관 규칙이며,
   실제 조명·3D 형상을 복원한 것이 아닙니다.
 """
 

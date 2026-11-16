@@ -337,8 +337,20 @@ class AdaptiveScratchDefect(_Strict):
     params: AdaptiveScratchParams = Field(default_factory=AdaptiveScratchParams)
 
 
+class AdaptivePinholeParams(PinholeParams):
+    # Same surface matching (and limits/defaults) as the scratch; "fixed" = the 1.0 appearance.
+    shading: ShadingSpec = Field(default_factory=ShadingSpec)
+
+
+class AdaptivePinholeDefect(_Strict):
+    type: Literal["pinhole"]
+    count: _count("pinhole") = DEFAULTS["pinhole"]["count"]
+    params: AdaptivePinholeParams = Field(default_factory=AdaptivePinholeParams)
+
+
 DefectSpecV11 = Annotated[
-    Union[AdaptiveScratchDefect, PinholeDefect, ContaminationDefect, TextureDefect, PatchDefect, RealDefect], Field(discriminator="type")
+    Union[AdaptiveScratchDefect, AdaptivePinholeDefect, ContaminationDefect, TextureDefect, PatchDefect, RealDefect],
+    Field(discriminator="type"),
 ]
 
 
@@ -364,6 +376,10 @@ class GenerationConfigV11(_Strict):
     @property
     def scratch(self) -> AdaptiveScratchDefect | None:
         return next((d for d in self.defects if isinstance(d, AdaptiveScratchDefect)), None)
+
+    @property
+    def pinhole(self) -> AdaptivePinholeDefect | None:
+        return next((d for d in self.defects if isinstance(d, AdaptivePinholeDefect)), None)
 
     @property
     def uses_real_samples(self) -> bool:
@@ -431,6 +447,7 @@ class GenerationMetadataV11(BaseModel):
     area: dict[str, Any] = Field(description="생성·제외 영역, 경계 여유, 허용 영역 픽셀 수와 마스크 해시(재현용)")
     reference_line: dict[str, Any] | None
     surface_analysis: dict[str, Any] | None = Field(description="스크래치 표면 맞춤을 켰을 때의 원본 국소 분석 요약")
+    pinhole_surface_analysis: dict[str, Any] | None = Field(default=None, description="핀홀 표면 맞춤을 켰을 때의 원본 국소 분석 요약")
     real_samples: dict[str, Any] | None = Field(
         default=None, description="‘실제 결함’에 쓴 결함 샘플(이미지·라벨 해시, 결함 수)과 라벨 클래스 이름. 재현용"
     )

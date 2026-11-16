@@ -25,6 +25,7 @@ import {
   type Region,
   type RegionKind,
   type ScratchParams,
+  type ShadingSpec,
   type ViewMode,
 } from '../types/generation'
 
@@ -85,6 +86,7 @@ export type WorkspaceState = {
   setDefectParam: <K extends DefectType>(type: K, key: keyof ParamsByType[K], value: ParamsByType[K][keyof ParamsByType[K]]) => void
   setScratchOrientation: (patch: Partial<ScratchParams['orientation']>) => void
   setScratchShading: (patch: Partial<ScratchParams['shading']>) => void
+  setPinholeShading: (patch: Partial<ShadingSpec>) => void
   setSeed: (seed: number) => void
   randomizeSeed: () => void
   setAllowOverlap: (allow: boolean) => void
@@ -278,6 +280,11 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
   setScratchOrientation: (patch) =>
     set((s) => ({ form: updateScratchParams(s.form, { orientation: { ...s.form.defects.scratch.params.orientation, ...patch } }) })),
   setScratchShading: (patch) => set((s) => ({ form: updateScratchParams(s.form, { shading: { ...s.form.defects.scratch.params.shading, ...patch } }) })),
+  setPinholeShading: (patch) =>
+    set((s) => {
+      const pinhole = s.form.defects.pinhole
+      return { form: updateDefect(s.form, 'pinhole', { params: { ...pinhole.params, shading: { ...pinhole.params.shading, ...patch } } }) }
+    }),
   setSeed: (seed) => set((s) => ({ form: { ...s.form, seed } })),
   randomizeSeed: () => set((s) => ({ form: { ...s.form, seed: Math.floor(Math.random() * 1_000_000) } })),
   setAllowOverlap: (allowOverlap) => set((s) => ({ form: { ...s.form, allowOverlap } })),
